@@ -25,6 +25,7 @@ from app.db.errors import (
     ReferenceViolationError,
     UniqueViolationError,
 )
+from app.files.models import StoredFile
 from app.providers.models import PricingRow, ProviderRow, RegionRow
 from app.selection.models import Candidate, Policy, TierPricing, Weights
 from app.selection.presets import DEFAULT_POLICY, PRESETS
@@ -190,11 +191,112 @@ class _FakeProviders:
         return self._s["policy"]
 
 
+class _FakeFiles:
+    """In-memory files, encryption records, locations, decisions and access logs."""
+
+    def __init__(self, state: dict[str, Any]):
+        self._s = state
+
+    def _next(self, key: str) -> int:
+        self._s[key] += 1
+        return self._s[key]
+
+    def insert_file(self, owner_id, file_name, size_bytes, file_type, security_level,
+                    content_sha256, expected_accesses) -> int:  # fmt: skip
+        file_id = self._next("next_file_id")
+        self._s["files"][file_id] = {
+            "file_id": file_id, "owner_id": owner_id, "file_name": file_name,
+            "file_size_bytes": size_bytes, "file_type": file_type,
+            "security_level": security_level, "status": "ACTIVE",
+            "content_sha256": content_sha256, "expected_accesses": expected_accesses,
+        }  # fmt: skip
+        return file_id
+
+    def insert_encryption(self, file_id, algorithm, wrapped_dek, nonce, master_key_version,
+                          ciphertext_sha256) -> None:  # fmt: skip
+        self._s["encryption"][file_id] = {
+            "algorithm": algorithm, "wrapped_dek": wrapped_dek, "nonce": nonce,
+            "master_key_version": master_key_version, "ciphertext_sha256": ciphertext_sha256,
+        }  # fmt: skip
+
+    def insert_location(self, file_id, region_id, tier_code, object_key) -> int:
+        location_id = self._next("next_location_id")
+        self._s["locations"][location_id] = {
+            "location_id": location_id, "file_id": file_id, "region_id": region_id,
+            "tier_code": tier_code, "object_key": object_key, "replica_status": "OK",
+        }  # fmt: skip
+        return location_id
+
+    def insert_decision(self, file_id, profile_name, weights, chosen_region_id, explanation) -> int:
+        decision_id = self._next("next_decision_id")
+        self._s["decisions"][decision_id] = {
+            "decision_id": decision_id, "file_id": file_id, "profile_name": profile_name,
+            "weights": weights, "chosen_region_id": chosen_region_id, "explanation": explanation,
+        }  # fmt: skip
+        return decision_id
+
+    def insert_candidate(self, decision_id, region_id, excluded_reason, raw, normalised,
+                         total_score) -> None:  # fmt: skip
+        self._s["candidates"].append({
+            "decision_id": decision_id, "region_id": region_id,
+            "excluded_reason": excluded_reason, "raw": raw, "normalised": normalised,
+            "total_score": total_score,
+        })  # fmt: skip
+
+    def insert_access_log(self, file_id, user_id, action, outcome, latency_ms, region_id) -> None:
+        self._s["access_logs"].append({
+            "file_id": file_id, "user_id": user_id, "action": action, "outcome": outcome,
+            "latency_ms": latency_ms, "region_id": region_id,
+        })  # fmt: skip
+
+    def get_for_access(self, file_id: int) -> StoredFile | None:
+        f = self._s["files"].get(file_id)
+        if f is None:
+            return None
+        loc = next((x for x in self._s["locations"].values() if x["file_id"] == file_id), None)
+        enc = self._s["encryption"].get(file_id)
+        region = self._s["regions"].get(loc["region_id"]) if loc else None
+        provider = self._s["providers"].get(region.provider_id) if region else None
+        return StoredFile(
+            file_id=file_id, owner_id=f["owner_id"], file_name=f["file_name"],
+            file_size_bytes=f["file_size_bytes"], file_type=f["file_type"],
+            security_level=f["security_level"], status=f["status"],
+            content_sha256=f["content_sha256"],
+            location_id=loc["location_id"] if loc else None,
+            region_id=loc["region_id"] if loc else None,
+            provider_code=provider.provider_code if provider else None,
+            region_code=region.region_code if region else None,
+            object_key=loc["object_key"] if loc else None,
+            tier_code=loc["tier_code"] if loc else None,
+            wrapped_dek=enc["wrapped_dek"] if enc else None,
+            nonce=enc["nonce"] if enc else None,
+            master_key_version=enc["master_key_version"] if enc else None,
+            ciphertext_sha256=enc["ciphertext_sha256"] if enc else None,
+        )  # fmt: skip
+
+    def mark_deleted(self, file_id: int) -> bool:
+        f = self._s["files"].get(file_id)
+        if f is None or f["status"] == "DELETED":
+            return False
+        f["status"] = "DELETED"
+        return True
+
+    def delete_encryption(self, file_id: int) -> None:
+        self._s["encryption"].pop(file_id, None)
+
+    def set_location_status(self, location_id: int, status: str) -> None:
+        self._s["locations"][location_id]["replica_status"] = status
+
+    def delete_location(self, location_id: int) -> None:
+        self._s["locations"].pop(location_id, None)
+
+
 class FakeSession:
     def __init__(self, state: dict[str, Any], database: FakeDatabase):
         self.users = _FakeUsers(state)
         self.audit = _FakeAudit(state, database)
         self.providers = _FakeProviders(state)
+        self.files = _FakeFiles(state)
 
 
 class FakeDatabase:
@@ -205,11 +307,14 @@ class FakeDatabase:
             "users": {}, "audit": [], "next_id": 0, "last_login": {},
             "providers": {}, "regions": {}, "pricing": {}, "latencies": {},
             "next_provider_id": 0, "next_region_id": 0,
+            "files": {}, "encryption": {}, "locations": {}, "decisions": {}, "candidates": [],
+            "access_logs": [], "next_file_id": 0, "next_location_id": 0, "next_decision_id": 0,
             "profiles": dict(PRESETS), "default_profile": "BALANCED", "policy": DEFAULT_POLICY,
         }  # fmt: skip
         self.available = True
         self.fail_audit_with: Exception | None = None
         self.fail_create_with: Exception | None = None
+        self.fail_insert_file_with: Exception | None = None
 
     @contextmanager
     def transaction(self) -> Iterator[FakeSession]:
@@ -224,6 +329,13 @@ class FakeDatabase:
                 raise error
 
             session.users.create = boom  # type: ignore[method-assign]
+        if self.fail_insert_file_with is not None:
+            file_error = self.fail_insert_file_with
+
+            def file_boom(*_args: Any, **_kwargs: Any) -> int:
+                raise file_error
+
+            session.files.insert_file = file_boom  # type: ignore[method-assign]
         try:
             yield session
         except BaseException:
@@ -311,3 +423,52 @@ __all__ = [
     "FakeDatabase",
     "RecordingConnection",
 ]
+
+
+# --- storage fault injection (SIMULATED providers only) ----------------------------------------
+class SpyStorage:
+    """Wraps a real SimulatedStorage; records calls and can be told to fail."""
+
+    def __init__(self, inner, registry):
+        self._inner, self._registry = inner, registry
+
+    def put(self, object_key: str, data: bytes) -> None:
+        self._registry.calls.append(("put", object_key))
+        if self._registry.put_fails:
+            from app.storage.base import StorageError
+
+            raise StorageError("injected put failure")
+        self._inner.put(object_key, data)
+
+    def get(self, object_key: str) -> bytes:
+        self._registry.calls.append(("get", object_key))
+        if self._registry.get_fails:
+            from app.storage.base import StorageError
+
+            raise StorageError("injected get failure")
+        return self._inner.get(object_key)
+
+    def delete(self, object_key: str) -> bool:
+        self._registry.calls.append(("delete", object_key))
+        if self._registry.delete_fails:
+            from app.storage.base import StorageError
+
+            raise StorageError("injected delete failure")
+        return self._inner.delete(object_key)
+
+    def exists(self, object_key: str) -> bool:
+        return self._inner.exists(object_key)
+
+
+class FaultyRegistry:
+    """A StorageRegistry around the real simulated one, with switches for forced failures."""
+
+    def __init__(self, real):
+        self.real = real
+        self.calls: list[tuple[str, str]] = []
+        self.put_fails = False
+        self.get_fails = False
+        self.delete_fails = False
+
+    def for_region(self, provider_code: str, region_code: str):
+        return SpyStorage(self.real.for_region(provider_code, region_code), self)

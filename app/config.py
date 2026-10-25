@@ -7,8 +7,10 @@ names the variable but never prints its value.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 _PLACEHOLDER_MARKERS = ("change-me", "put-your")
 _MIN_JWT_SECRET_LENGTH = 32
@@ -30,13 +32,20 @@ class Settings:
     db_pool_min: int = 1
     db_pool_max: int = 5
     app_env: str = "dev"
+    master_key: bytes = field(default=b"", repr=False)  # 32 bytes; stands in for a cloud KMS key
+    master_key_version: int = 1
+    max_upload_bytes: int = 50 * 1024 * 1024
+    storage_root: str = "storage_sim"  # SIMULATED provider folders are created under here
 
     def __repr__(self) -> str:  # never leak secrets into logs or tracebacks
         return (
             f"Settings(oracle_dsn={self.oracle_dsn!r}, oracle_user={self.oracle_user!r}, "
             f"jwt_algorithm={self.jwt_algorithm!r}, jwt_expiry_minutes={self.jwt_expiry_minutes}, "
             f"db_pool={self.db_pool_min}-{self.db_pool_max}, app_env={self.app_env!r}, "
-            "oracle_password=<hidden>, jwt_secret=<hidden>)"
+            f"master_key_version={self.master_key_version}, "
+            f"max_upload_bytes={self.max_upload_bytes}, "
+            f"storage_root={self.storage_root!r}, "
+            "oracle_password=<hidden>, jwt_secret=<hidden>, master_key=<hidden>)"
         )
 
 
@@ -58,6 +67,23 @@ def _int(env: dict[str, str], name: str, default: int, minimum: int) -> int:
     if value < minimum:
         raise ConfigError(f"Environment variable {name} must be at least {minimum}")
     return value
+
+
+def _master_key(env: dict[str, str]) -> bytes:
+    raw = env.get("MASTER_KEY", "").strip()
+    if not raw:
+        raise ConfigError(
+            "Environment variable MASTER_KEY is not set. Generate one with: python -c "
+            '"import secrets,base64; print(base64.b64encode(secrets.token_bytes(32)).decode())"'
+        )
+    standard = raw.replace("-", "+").replace("_", "/")  # also accept URL-safe base64
+    try:
+        key = base64.b64decode(standard + "=" * (-len(standard) % 4), validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ConfigError("MASTER_KEY must be base64 text") from exc
+    if len(key) != 32:
+        raise ConfigError("MASTER_KEY must decode to exactly 32 bytes (AES-256)")
+    return key
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
@@ -93,4 +119,8 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         db_pool_min=pool_min,
         db_pool_max=pool_max,
         app_env=app_env,
+        master_key=_master_key(source),
+        master_key_version=_int(source, "MASTER_KEY_VERSION", 1, 1),
+        max_upload_bytes=_int(source, "MAX_UPLOAD_BYTES", 50 * 1024 * 1024, 1),
+        storage_root=source.get("STORAGE_ROOT", "").strip() or "storage_sim",
     )

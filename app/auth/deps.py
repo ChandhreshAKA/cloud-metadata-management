@@ -26,6 +26,14 @@ def get_database(request: Request) -> Database:
     return request.app.state.database
 
 
+def get_crypto(request: Request):
+    return request.app.state.crypto
+
+
+def get_storage(request: Request):
+    return request.app.state.storage
+
+
 def client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
 

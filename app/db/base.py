@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Protocol
 
+from app.files.models import StoredFile
 from app.providers.models import PricingRow, ProviderRow, RegionRow
 from app.selection.models import Candidate, Policy, Weights
 
@@ -102,10 +103,62 @@ class ProviderRepository(Protocol):
         ...
 
 
+class FileRepository(Protocol):
+    """Files, their encryption record, locations, selection decisions and access logs."""
+
+    def insert_file(
+        self,
+        owner_id: int,
+        file_name: str,
+        size_bytes: int,
+        file_type: str,
+        security_level: str,
+        content_sha256: str,
+        expected_accesses: int,
+    ) -> int: ...
+
+    def insert_encryption(self, file_id: int, algorithm: str, wrapped_dek: bytes, nonce: bytes,
+                          master_key_version: int, ciphertext_sha256: str) -> None: ...  # fmt: skip
+
+    def insert_location(
+        self, file_id: int, region_id: int, tier_code: str, object_key: str
+    ) -> int: ...
+
+    def insert_decision(self, file_id: int, profile_name: str, weights: dict[str, str],
+                        chosen_region_id: int | None, explanation: str) -> int: ...  # fmt: skip
+
+    def insert_candidate(self, decision_id: int, region_id: int, excluded_reason: str | None,
+                         raw: dict[str, str] | None, normalised: dict[str, Decimal] | None,
+                         total_score: Decimal | None) -> None: ...  # fmt: skip
+
+    def insert_access_log(
+        self,
+        file_id: int,
+        user_id: int,
+        action: str,
+        outcome: str,
+        latency_ms: Decimal | None,
+        region_id: int | None,
+    ) -> None: ...
+
+    def get_for_access(self, file_id: int) -> StoredFile | None: ...
+
+    def mark_deleted(self, file_id: int) -> bool:
+        """Set status DELETED. False if it was already deleted (or does not exist)."""
+        ...
+
+    def delete_encryption(self, file_id: int) -> None: ...
+
+    def set_location_status(self, location_id: int, status: str) -> None: ...
+
+    def delete_location(self, location_id: int) -> None: ...
+
+
 class Session(Protocol):
     users: UserRepository
     audit: AuditRepository
     providers: ProviderRepository
+    files: FileRepository
 
 
 class Database(Protocol):

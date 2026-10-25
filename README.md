@@ -3,14 +3,16 @@
 Course project (DBMS): a central Oracle metadata store plus an API for authentication, role-based
 access control and auditing of multi-cloud file storage. Providers are **simulated** (see Status).
 
-## Status (end of Chunk 3)
+## Status (end of Chunk 4)
 
 | Area | State |
 |---|---|
 | Oracle schema, migration, demos, indexes (`sql/`) | Done and executed on Oracle 26ai Free (Chunk 1) |
 | Config, DB layer, register, login (Argon2 + JWT), RBAC, audit, health | **Built and verified.** 127 unit tests pass (fake database); 13 integration tests pass against Oracle 26ai Free (run by the project owner, 1.93 s) |
 | Provider registry (admin-only writes) and the selection engine, dry-run endpoints, worked example, baselines | **Built and verified.** 275 unit tests; 29 integration tests pass against Oracle (run at build time). See `docs/03-selection-engine.md` |
-| Storage, encryption, upload/download, duplicates and cold files, demo script, test report | Not built yet (later chunks) |
+| Encrypted upload, download and delete to **SIMULATED** local-folder storage (AES-256-GCM, selection engine called on every upload) | **Built and verified.** 370 unit tests; 40 integration tests pass against Oracle; real-HTTP end-to-end run done. See `docs/04-storage-encryption.md` |
+| Duplicate and cold-file reports, demo script, test report | Not built yet (later chunks) |
+| Replication, failover, real cloud adapters, key rotation, orphan sweep | Not built (out of scope) |
 | Account lockout, password reset, token revocation, rate limiting | Deliberately not built |
 
 ## Prerequisites
@@ -29,7 +31,8 @@ python -m venv .venv
 Copy-Item .env.example .env
 ```
 
-Edit `.env` (it is git-ignored). Set at least `ORACLE_PASSWORD` and a real `JWT_SECRET`:
+Edit `.env` (it is git-ignored). Set at least `ORACLE_PASSWORD`, a real `JWT_SECRET` and a `MASTER_KEY`
+(the app will not start without a valid `MASTER_KEY`; **back it up: losing it makes every stored file unreadable**):
 
 ```powershell
 .\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(48))"
@@ -46,6 +49,10 @@ Edit `.env` (it is git-ignored). Set at least `ORACLE_PASSWORD` and a real `JWT_
 | `JWT_ALGORITHM` | no | `HS256` | `HS256`, `HS384` or `HS512` |
 | `JWT_EXPIRY_MINUTES` | no | `30` | token lifetime |
 | `DB_POOL_MIN` / `DB_POOL_MAX` | no | `1` / `5` | connection pool size |
+| `MASTER_KEY` | yes | none | 32 random bytes as base64; wraps each file's data key (stands in for a cloud KMS) |
+| `MASTER_KEY_VERSION` | no | `1` | recorded with each file; only this version can decrypt |
+| `MAX_UPLOAD_BYTES` | no | `52428800` | uploads larger than this are refused (50 MiB) |
+| `STORAGE_ROOT` | no | `storage_sim` | folder for the SIMULATED provider storage (git-ignored) |
 | `APP_ENV` | no | `dev` | `dev`, `test` or `production` |
 | `RUN_INTEGRATION` | no | `0` | set to `1` to run `tests/integration` |
 
@@ -130,6 +137,9 @@ Invoke-RestMethod -Uri http://127.0.0.1:8000/protected/providers -Headers $auth 
 | `PUT /regions/{id}/pricing/{tier}` | ADMIN | create or replace a tier's prices |
 | `POST /selection/compare` | any logged-in role | all regions side by side + winner under each preset (dry run) |
 | `POST /selection/select` | any logged-in role | rank, explain, baselines (dry run, writes nothing) |
+| `POST /files?file_name=..&security_level=..` | USER | upload (raw body): select provider, encrypt, store, record metadata |
+| `GET /files/{id}/download` | USER (owner) | fetch, decrypt, verify SHA-256, log latency |
+| `DELETE /files/{id}?confirm=true` | USER (owner) | delete with explicit confirmation; erases the key |
 
 ## Permission table (single source of truth: `app/auth/rbac.py`)
 
@@ -172,11 +182,33 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/selection/select -Head
 
 All prices, scores and latencies in the seed data are **illustrative**. The full method, formulas, tie-break order and limitations are in `docs/03-selection-engine.md`.
 
+## Encrypted upload and download (Chunk 4; storage is SIMULATED)
+
+Generate a master key and put it in `.env` as `MASTER_KEY=...`:
+
+```powershell
+.\.venv\Scripts\python.exe -c "import secrets,base64; print(base64.b64encode(secrets.token_bytes(32)).decode())"
+```
+
+With the server running and `$auth` set (see above):
+
+```powershell
+$up = Invoke-RestMethod -Method Post -Headers $auth -InFile .\report.pdf -ContentType "application/octet-stream" `
+    -Uri "http://127.0.0.1:8000/files?file_name=report.pdf&security_level=HIGH"
+$up | Format-List file_id, provider, region, storage, content_sha256, ciphertext_sha256
+Invoke-WebRequest -Headers $auth -OutFile .\back.pdf -Uri "http://127.0.0.1:8000/files/$($up.file_id)/download"
+(Get-FileHash .\report.pdf).Hash -eq (Get-FileHash .\back.pdf).Hash     # True
+Get-ChildItem -Recurse storage_sim -File                                   # the encrypted object
+```
+
+Open the object in `storage_sim`: it is ciphertext (no `%PDF` header, your text is not in it). Details, failure rules and limits are in `docs/04-storage-encryption.md`.
+
 ## Audit events written
 
 `USER_REGISTERED` (success and duplicate-email failure), `LOGIN_OK`, `LOGIN_FAILED` (the reason is
 stored internally; the client always gets the same 401), `ACCESS_DENIED` (403), and for registry
-changes `CONFIG_CHANGED` and `PROVIDER_STATUS_CHANGED` (old and new values in `details_json`). Audit rows are
+changes `CONFIG_CHANGED` and `PROVIDER_STATUS_CHANGED` (old and new values in `details_json`), and for files
+`FILE_UPLOADED`, `FILE_DELETED` and `ACCESS_DENIED` (not the owner). Downloads are recorded in `access_logs`. Audit rows are
 committed in their own transaction so they survive the failed request, and if an audit write fails
 the request fails too. Requests with a missing or invalid token (401) are not audited.
 
@@ -214,6 +246,9 @@ app/
   audit/service.py      audit events
   providers/            module 3: registry service and row types
   selection/            module 4: engine.py (pure), models, presets, explain, baselines, example, service
+  crypto/               AES-256-GCM envelope encryption (master key from the environment)
+  storage/              storage interface + the one SIMULATED local-folder adapter
+  files/                upload / download / delete service, errors, row types
   api/                  schemas*.py, routers/ (auth, health, protected, providers, selection)
 scripts/set_password.py activate seeded demo users
 sql/                    Chunk 1 database scripts (schema, seed, demos, migration)

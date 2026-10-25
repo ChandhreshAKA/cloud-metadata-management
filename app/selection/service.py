@@ -52,7 +52,7 @@ def load_inputs(database: Database, request: FileRequest) -> SelectionInputs:
     return SelectionInputs(request, candidates, presets, default_name, policy)
 
 
-def _pick_weights(
+def pick_weights(
     inputs: SelectionInputs, preset: str | None, overrides: Mapping[str, object] | None
 ) -> tuple[str, Weights, str | None]:
     name = (preset or inputs.default_preset).upper()
@@ -74,7 +74,7 @@ def select_provider(
 ) -> dict[str, Any]:
     """Dry-run selection: rank, explain, and report what the two baselines would have chosen."""
     inputs = load_inputs(database, request)
-    name, weights, note = _pick_weights(inputs, preset, overrides)
+    name, weights, note = pick_weights(inputs, preset, overrides)
     result = engine.select(
         request,
         inputs.candidates,

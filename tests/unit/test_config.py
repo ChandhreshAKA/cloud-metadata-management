@@ -7,6 +7,7 @@ GOOD = {
     "ORACLE_USER": "cloudmeta",
     "ORACLE_PASSWORD": "pw",
     "JWT_SECRET": "s" * 40,
+    "MASTER_KEY": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",  # bytes 0..31
 }
 
 
@@ -18,7 +19,9 @@ def test_loads_defaults_from_a_valid_environment():
     assert s.app_env == "dev"
 
 
-@pytest.mark.parametrize("missing", ["ORACLE_DSN", "ORACLE_USER", "ORACLE_PASSWORD", "JWT_SECRET"])
+@pytest.mark.parametrize(
+    "missing", ["ORACLE_DSN", "ORACLE_USER", "ORACLE_PASSWORD", "JWT_SECRET", "MASTER_KEY"]
+)
 def test_missing_required_variable_names_the_variable(missing):
     env = {k: v for k, v in GOOD.items() if k != missing}
     with pytest.raises(ConfigError, match=missing):

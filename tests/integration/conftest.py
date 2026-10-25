@@ -20,6 +20,8 @@ from fastapi.testclient import TestClient
 from app.config import load_settings
 from app.db.pool import OracleDatabase
 from app.main import create_app
+from app.storage.simulated import SimulatedStorageRegistry
+from tests.fakes import FaultyRegistry
 
 load_dotenv()
 
@@ -59,6 +61,13 @@ def database():
 
 
 @pytest.fixture(scope="session")
-def client(database):
-    with TestClient(create_app(database=database, settings=load_settings())) as c:
+def storage(tmp_path_factory):
+    """SIMULATED storage in a temporary folder (deleted by pytest), with failure switches."""
+    return FaultyRegistry(SimulatedStorageRegistry(tmp_path_factory.mktemp("sim")))
+
+
+@pytest.fixture(scope="session")
+def client(database, storage):
+    app = create_app(database=database, settings=load_settings(), storage=storage)
+    with TestClient(app) as c:
         yield c

@@ -15,8 +15,9 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.api.routers import auth, health, protected, providers, selection
+from app.api.routers import auth, files, health, protected, providers, selection
 from app.config import Settings, load_settings
+from app.crypto.service import CryptoService
 from app.db.base import Database
 from app.db.errors import (
     CLIENT_MESSAGES,
@@ -30,9 +31,12 @@ from app.db.errors import (
     ValueTooLargeError,
 )
 from app.db.pool import OracleDatabase
+from app.files import errors as file_errors
 from app.providers.service import NotFoundError
 from app.selection.presets import WeightError
 from app.selection.service import InvalidSelectionRequest, UnknownPresetError
+from app.storage.base import StorageRegistry
+from app.storage.simulated import SimulatedStorageRegistry
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +66,26 @@ def _register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(InvalidSelectionRequest)
     async def bad_selection_input(_: Request, exc: Exception) -> JSONResponse:
         return _json(422, str(exc))
+
+    file_error_status = {
+        file_errors.InvalidFileError: 422,
+        file_errors.FileTooLargeError: 413,
+        file_errors.StorageUnavailableError: 503,
+        file_errors.StoredFileNotFoundError: 404,
+        file_errors.FileDeletedError: 410,
+        file_errors.NotOwnerError: 403,
+        file_errors.ObjectMissingError: 404,
+        file_errors.IntegrityFailureError: 502,
+        file_errors.ConfirmationRequiredError: 400,
+    }
+
+    @app.exception_handler(file_errors.FileServiceError)
+    async def file_error(_: Request, exc: file_errors.FileServiceError) -> JSONResponse:
+        if isinstance(exc, file_errors.NoEligibleProviderError):
+            return JSONResponse(
+                status_code=422, content={"detail": str(exc), "rejected": exc.rejected}
+            )
+        return _json(file_error_status.get(type(exc), 400), str(exc))
 
     @app.exception_handler(DuplicateEmailError)
     async def duplicate_email(_: Request, __: DuplicateEmailError) -> JSONResponse:
@@ -96,7 +120,11 @@ def _register_error_handlers(app: FastAPI) -> None:
         return _json(500, "Internal database error")
 
 
-def create_app(database: Database | None = None, settings: Settings | None = None) -> FastAPI:
+def create_app(
+    database: Database | None = None,
+    settings: Settings | None = None,
+    storage: StorageRegistry | None = None,
+) -> FastAPI:
     """Build the app. With no arguments it reads the environment (and .env) and opens the pool."""
 
     @asynccontextmanager
@@ -105,6 +133,10 @@ def create_app(database: Database | None = None, settings: Settings | None = Non
         if settings is None or database is None:
             load_dotenv()
         app.state.settings = settings or load_settings()
+        app.state.crypto = CryptoService(
+            app.state.settings.master_key, app.state.settings.master_key_version
+        )
+        app.state.storage = storage or SimulatedStorageRegistry(app.state.settings.storage_root)
         app.state.database = database or OracleDatabase.from_settings(app.state.settings)
         try:
             yield
@@ -114,9 +146,9 @@ def create_app(database: Database | None = None, settings: Settings | None = Non
 
     app = FastAPI(
         title="Multi-Cloud Metadata Manager",
-        version="0.3.0",
-        description="Chunks 2-3: authentication, RBAC, audit, provider registry and the provider "
-        "selection engine (dry run). Storage and monitoring arrive in later chunks.",
+        version="0.4.0",
+        description="Chunks 2-4: authentication, RBAC, audit, provider registry, selection "
+        "and encrypted upload/download to SIMULATED storage. Monitoring arrives later.",
         lifespan=lifespan,
     )
     _register_error_handlers(app)
@@ -125,4 +157,5 @@ def create_app(database: Database | None = None, settings: Settings | None = Non
     app.include_router(protected.router)
     app.include_router(providers.router)
     app.include_router(selection.router)
+    app.include_router(files.router)
     return app

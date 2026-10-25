@@ -15,6 +15,7 @@ import oracledb
 from app.config import Settings
 from app.db.errors import DatabaseUnavailableError, map_db_error
 from app.db.repositories.audit import OracleAuditRepository
+from app.db.repositories.files import OracleFileRepository
 from app.db.repositories.providers import OracleProviderRepository
 from app.db.repositories.users import OracleUserRepository
 
@@ -32,6 +33,7 @@ class OracleSession:
         self.users = OracleUserRepository(connection)
         self.audit = OracleAuditRepository(connection)
         self.providers = OracleProviderRepository(connection)
+        self.files = OracleFileRepository(connection)
 
 
 class OracleDatabase:

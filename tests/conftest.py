@@ -8,7 +8,8 @@ from fastapi.testclient import TestClient
 from app.auth.passwords import hash_password
 from app.config import Settings
 from app.main import create_app
-from tests.fakes import FakeDatabase
+from app.storage.simulated import SimulatedStorageRegistry
+from tests.fakes import FakeDatabase, FaultyRegistry
 from tests.registry_data import seed_registry
 
 PASSWORD = "correct-horse-battery"  # noqa: S105  (test value)
@@ -29,6 +30,8 @@ def settings() -> Settings:
         jwt_secret="unit-test-secret-" + "x" * 40,
         jwt_expiry_minutes=30,
         app_env="test",
+        master_key=bytes(range(32)),  # TEST ONLY key
+        max_upload_bytes=1024 * 1024,
     )
 
 
@@ -38,8 +41,14 @@ def db() -> FakeDatabase:
 
 
 @pytest.fixture
-def client(db: FakeDatabase, settings: Settings):
-    with TestClient(create_app(database=db, settings=settings)) as test_client:
+def storage(tmp_path) -> FaultyRegistry:
+    """SIMULATED storage in a temporary folder, with switches to force failures."""
+    return FaultyRegistry(SimulatedStorageRegistry(tmp_path / "sim"))
+
+
+@pytest.fixture
+def client(db: FakeDatabase, settings: Settings, storage: FaultyRegistry):
+    with TestClient(create_app(database=db, settings=settings, storage=storage)) as test_client:
         yield test_client
 
 
