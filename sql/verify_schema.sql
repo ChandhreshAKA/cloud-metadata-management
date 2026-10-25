@@ -1,7 +1,7 @@
 -- =====================================================================
 -- verify_schema.sql  STATUS: NOT EXECUTED
 -- Read-only sanity report. Paste its output back for review.
---   sqlplus cloudmeta@localhost:1521/FREEPDB1 @verify_schema.sql
+--   sqlplus cloudmeta@localhost:1521/FREEPDB1 '@verify_schema.sql'
 -- =====================================================================
 SET LINESIZE 200
 SET PAGESIZE 200

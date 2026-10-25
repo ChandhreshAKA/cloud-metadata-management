@@ -2,7 +2,7 @@
 -- install_fresh.sql  STATUS: NOT EXECUTED
 -- Fresh install on an EMPTY schema:
 --   cd C:\dbmsproject\sql
---   sqlplus cloudmeta@localhost:1521/FREEPDB1 @install_fresh.sql
+--   sqlplus cloudmeta@localhost:1521/FREEPDB1 '@install_fresh.sql'
 -- (If the schema is not empty, run drop_all.sql first.)
 -- =====================================================================
 SET ECHO OFF

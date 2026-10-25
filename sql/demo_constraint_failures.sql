@@ -4,7 +4,7 @@
 -- EXPECTED to fail; the expected Oracle error is printed before it. Nothing is
 -- committed (ROLLBACK at the end). Requires install_fresh.sql (or the migration) first.
 --   cd C:\dbmsproject\sql
---   sqlplus cloudmeta@localhost:1521/FREEPDB1 @demo_constraint_failures.sql
+--   sqlplus cloudmeta@localhost:1521/FREEPDB1 '@demo_constraint_failures.sql'
 -- The constraint name inside the error message is what to compare.
 -- =====================================================================
 SET ECHO ON
@@ -14,7 +14,7 @@ SET FEEDBACK ON
 WHENEVER SQLERROR CONTINUE
 SPOOL demo_constraint_failures.log
 
-PROMPT ---- PRIMARY KEY / UNIQUE (ORA-00001) ----
+PROMPT ---- PRIMARY KEY / UNIQUE (ORA-00001) ====
 
 PROMPT F01 expect ORA-00001 PK_USERS (user_id 1 already exists)
 INSERT INTO users (user_id, full_name, email, role) VALUES (1, 'Dup Id', 'dup1@example.com', 'USER');
@@ -44,7 +44,7 @@ PROMPT F06 expect ORA-00001 UX_WEIGHTS_ONE_DEFAULT (second default weight profil
 INSERT INTO weight_profiles (profile_name, description, w_storage_cost, w_transfer_cost, w_latency, w_reliability, w_security, is_default)
 VALUES ('SECOND_DEFAULT', 'x', 0.2, 0.2, 0.2, 0.2, 0.2, 'Y');
 
-PROMPT ---- NOT NULL (ORA-01400) ----
+PROMPT ---- NOT NULL (ORA-01400) ====
 
 PROMPT F07 expect ORA-01400 cannot insert NULL into USERS.EMAIL
 INSERT INTO users (full_name, role) VALUES ('No Email', 'USER');
@@ -57,7 +57,7 @@ PROMPT F09 expect ORA-01400 cannot insert NULL into PROVIDER_REGIONS.SECURITY_SC
 INSERT INTO provider_regions (provider_id, region_code, bucket_name, reliability_score, egress_usd_per_gb)
 VALUES ((SELECT provider_id FROM cloud_providers WHERE provider_code = 'AWS'), 'f09', 'f09-bucket', 5, 0.09);
 
-PROMPT ---- CHECK (ORA-02290) ----
+PROMPT ---- CHECK (ORA-02290) ====
 
 PROMPT F10 expect ORA-02290 CK_USERS_EMAIL_LOWER
 INSERT INTO users (full_name, email, role) VALUES ('Upper Mail', 'HARINI@EXAMPLE.COM', 'USER');
@@ -130,7 +130,7 @@ VALUES ((SELECT MIN(region_id) FROM provider_regions), 'GET', 'Y', 'SIMULATED');
 PROMPT F27 expect ORA-02290 CK_AUDIT_TYPE (unknown event type)
 INSERT INTO audit_events (event_type, outcome) VALUES ('SOMETHING_ELSE', 'SUCCESS');
 
-PROMPT ---- FOREIGN KEY (ORA-02291 child without parent, ORA-02292 parent with children) ----
+PROMPT ---- FOREIGN KEY (ORA-02291 child without parent, ORA-02292 parent with children) ====
 
 PROMPT F28 expect ORA-02291 FK_FILES_OWNER (parent key not found)
 INSERT INTO files (owner_id, file_name, file_size_bytes, file_type, security_level)
@@ -151,7 +151,7 @@ DELETE FROM files WHERE file_name = 'project_report.pdf';
 PROMPT F32 expect ORA-02292 child record found (FK_REGIONS_PROVIDER) - a provider with regions cannot be deleted
 DELETE FROM cloud_providers WHERE provider_code = 'AWS';
 
-PROMPT ---- DATA TYPE LIMITS ----
+PROMPT ---- DATA TYPE LIMITS ====
 
 PROMPT F33 expect ORA-12899 value too large for column FILES.FILE_NAME
 INSERT INTO files (owner_id, file_name, file_size_bytes, file_type, security_level)
@@ -161,7 +161,7 @@ PROMPT F34 expect ORA-01438 value larger than specified precision (NUMBER(4,2) h
 INSERT INTO provider_regions (provider_id, region_code, bucket_name, reliability_score, security_score, egress_usd_per_gb)
 VALUES ((SELECT provider_id FROM cloud_providers WHERE provider_code = 'AWS'), 'f34', 'f34-bucket', 100.5, 5, 0.09);
 
-PROMPT ---- TRIGGER: audit_events is append-only (ORA-20001) ----
+PROMPT ---- TRIGGER: audit_events is append-only (ORA-20001) ====
 
 PROMPT F35 setup (this insert SUCCEEDS; it is rolled back at the end)
 INSERT INTO audit_events (event_type, outcome, details_json) VALUES ('CONFIG_CHANGED', 'SUCCESS', '{"demo":true}');
@@ -172,7 +172,7 @@ UPDATE audit_events SET outcome = 'FAILURE';
 PROMPT F37 expect ORA-20001 audit_events is append-only (DELETE)
 DELETE FROM audit_events;
 
-PROMPT ---- Cleanup: nothing should have been persisted ----
+PROMPT ---- Cleanup: nothing should have been persisted ====
 ROLLBACK;
 SELECT (SELECT COUNT(*) FROM users)        AS users_rows,
        (SELECT COUNT(*) FROM files)        AS files_rows,

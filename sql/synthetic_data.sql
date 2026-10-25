@@ -2,8 +2,8 @@
 -- synthetic_data.sql  STATUS: NOT EXECUTED
 -- Generates SYNTHETIC load so index benefits can be measured.
 --   cd C:\dbmsproject\sql
---   sqlplus cloudmeta@localhost:1521/FREEPDB1 @synthetic_data.sql 10000
---   sqlplus cloudmeta@localhost:1521/FREEPDB1 @synthetic_data.sql 100000
+--   sqlplus cloudmeta@localhost:1521/FREEPDB1 '@synthetic_data.sql' 10000
+--   sqlplus cloudmeta@localhost:1521/FREEPDB1 '@synthetic_data.sql' 100000
 -- Argument = number of access_logs rows. Safe to re-run with a different size:
 -- it first removes earlier synthetic access_logs, then keeps (or creates) 100 synthetic
 -- users and 5,000 synthetic files, then inserts the requested number of log rows.

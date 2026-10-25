@@ -4,7 +4,7 @@
 -- revised schema, PRESERVING IDs. Legacy tables are kept as LEGACY_* until you
 -- are satisfied; undo with rollback_migration.sql.
 --   cd C:\dbmsproject\sql
---   sqlplus cloudmeta@localhost:1521/FREEPDB1 @migrate_legacy.sql
+--   sqlplus cloudmeta@localhost:1521/FREEPDB1 '@migrate_legacy.sql'
 -- Mapping decisions (see docs/01-schema-audit.md section 5):
 --   Users.Name -> full_name; email lower-cased; no password -> PENDING_RESET
 --   Cloud_Providers(name, region, scores) -> cloud_providers + provider_regions

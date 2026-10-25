@@ -1,7 +1,7 @@
 -- =====================================================================
 -- cleanup_synthetic.sql  STATUS: NOT EXECUTED
 -- Removes ONLY the synthetic users, files and logs created by synthetic_data.sql.
---   sqlplus cloudmeta@localhost:1521/FREEPDB1 @cleanup_synthetic.sql
+--   sqlplus cloudmeta@localhost:1521/FREEPDB1 '@cleanup_synthetic.sql'
 -- =====================================================================
 SET DEFINE OFF
 SET FEEDBACK ON

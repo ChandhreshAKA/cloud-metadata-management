@@ -3,7 +3,7 @@
 -- COMMIT, ROLLBACK, SAVEPOINT / ROLLBACK TO, atomic multi-step upload, ON DELETE CASCADE
 -- and RESTRICT, against the revised schema. Requires install_fresh.sql first.
 --   cd C:\dbmsproject\sql
---   sqlplus cloudmeta@localhost:1521/FREEPDB1 @demo_transactions.sql
+--   sqlplus cloudmeta@localhost:1521/FREEPDB1 '@demo_transactions.sql'
 -- Two statements are EXPECTED to fail (marked EXPECT ERROR). Leaves no rows behind.
 -- =====================================================================
 SET ECHO ON

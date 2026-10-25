@@ -1,7 +1,7 @@
 -- =====================================================================
 -- prereq_as_sysdba.sql  STATUS: NOT EXECUTED
 -- Run ONCE as SYS, connected to the pluggable DB (not the CDB root):
---   sqlplus sys@localhost:1521/FREEPDB1 as sysdba @prereq_as_sysdba.sql
+--   sqlplus sys@localhost:1521/FREEPDB1 as sysdba '@prereq_as_sysdba.sql'
 -- Creates the project schema user CLOUDMETA. The password is prompted (hidden)
 -- and never stored in any file.
 -- =====================================================================
@@ -23,4 +23,4 @@ GRANT EXECUTE ON DBMS_STATS  TO cloudmeta;
 GRANT EXECUTE ON DBMS_XPLAN  TO cloudmeta;
 
 UNDEFINE cm_pwd
-PROMPT == CLOUDMETA ready. Next: sqlplus cloudmeta@localhost:1521/FREEPDB1 @install_fresh.sql ==
+PROMPT == CLOUDMETA ready. Next: sqlplus cloudmeta@localhost:1521/FREEPDB1 '@install_fresh.sql' ==

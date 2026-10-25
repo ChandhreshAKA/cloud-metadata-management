@@ -3,7 +3,7 @@
 -- Undoes migrate_legacy.sql: drops every NEW table/view, renames LEGACY_* back to
 -- the original names and recreates the legacy view. Use after a failed or unwanted
 -- migration. Legacy indexes and constraints were never dropped, so nothing else is needed.
---   sqlplus cloudmeta@localhost:1521/FREEPDB1 @rollback_migration.sql
+--   sqlplus cloudmeta@localhost:1521/FREEPDB1 '@rollback_migration.sql'
 -- =====================================================================
 SET DEFINE ON
 SET VERIFY OFF

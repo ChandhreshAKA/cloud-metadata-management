@@ -1,10 +1,10 @@
 -- =====================================================================
 -- explain_plan_demo.sql  STATUS: NOT EXECUTED
 -- BEFORE/AFTER index comparison on access_logs, using synthetic data.
---   1. sqlplus cloudmeta@localhost:1521/FREEPDB1 @synthetic_data.sql 10000
---   2. sqlplus cloudmeta@localhost:1521/FREEPDB1 @explain_plan_demo.sql
---   3. sqlplus cloudmeta@localhost:1521/FREEPDB1 @synthetic_data.sql 100000
---   4. sqlplus cloudmeta@localhost:1521/FREEPDB1 @explain_plan_demo.sql
+--   1. sqlplus cloudmeta@localhost:1521/FREEPDB1 '@synthetic_data.sql' 10000
+--   2. sqlplus cloudmeta@localhost:1521/FREEPDB1 '@explain_plan_demo.sql'
+--   3. sqlplus cloudmeta@localhost:1521/FREEPDB1 '@synthetic_data.sql' 100000
+--   4. sqlplus cloudmeta@localhost:1521/FREEPDB1 '@explain_plan_demo.sql'
 -- Paste the spooled output (explain_plan_demo.log) into docs/01-explain-results.md.
 --
 -- For each query it shows:
@@ -24,6 +24,16 @@ SET LINESIZE 220
 SET PAGESIZE 200
 SET TRIMSPOOL ON
 SET LONG 100000
+WHENEVER SQLERROR EXIT SQL.SQLCODE
+DECLARE
+    v_cnt NUMBER;
+BEGIN
+    SELECT COUNT(*) INTO v_cnt FROM files WHERE file_name LIKE 'synth\_%' ESCAPE '\';
+    IF v_cnt = 0 THEN
+        RAISE_APPLICATION_ERROR(-20020, 'No synthetic data. Run synthetic_data.sql first (see run guide step 4)');
+    END IF;
+END;
+/
 WHENEVER SQLERROR CONTINUE
 SPOOL explain_plan_demo.log
 

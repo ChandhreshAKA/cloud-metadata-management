@@ -22,7 +22,7 @@ Connect string used below: `localhost:1521/FREEPDB1` (change if your installer p
 ## 0. Create the project user (once, as SYS)  `prereq_as_sysdba.sql`
 
 ```powershell
-sqlplus sys@localhost:1521/FREEPDB1 as sysdba @prereq_as_sysdba.sql
+sqlplus sys@localhost:1521/FREEPDB1 as sysdba '@prereq_as_sysdba.sql'
 ```
 Skip this if you already created `cloudmeta` with the manual commands from earlier; in that case just run the five `GRANT` statements from the script.
 
@@ -44,7 +44,7 @@ Grant succeeded.      (x5)
 ## 1. Fresh install  `install_fresh.sql`
 
 ```powershell
-sqlplus cloudmeta@localhost:1521/FREEPDB1 @install_fresh.sql
+sqlplus cloudmeta@localhost:1521/FREEPDB1 '@install_fresh.sql'
 ```
 Runs `schema.sql`, `indexes.sql`, `views.sql`, `seed_data.sql`, `seed_demo.sql`, `verify_schema.sql` and spools `install_fresh.log`. Stops at the first error (`WHENEVER SQLERROR EXIT`).
 
@@ -103,7 +103,7 @@ RECOMMENDATIONS 0      AUDIT_EVENTS 0
 ## 2. Transactions demo  `demo_transactions.sql`
 
 ```powershell
-sqlplus cloudmeta@localhost:1521/FREEPDB1 @demo_transactions.sql
+sqlplus cloudmeta@localhost:1521/FREEPDB1 '@demo_transactions.sql'
 ```
 Needs step 1 done. Leaves no rows. Expected (key lines):
 
@@ -134,7 +134,7 @@ ROLLBACK;                                                                      -
 ## 3. Constraint failure demo  `demo_constraint_failures.sql`
 
 ```powershell
-sqlplus cloudmeta@localhost:1521/FREEPDB1 @demo_constraint_failures.sql
+sqlplus cloudmeta@localhost:1521/FREEPDB1 '@demo_constraint_failures.sql'
 ```
 **Every statement fails except F35.** The error text names the constraint in parentheses; match on that. Exact wording after the code may differ a little between Oracle versions.
 
@@ -184,7 +184,7 @@ If one of these statements **succeeds** (`1 row created.`) that constraint is no
 ## 4. Synthetic data, 10,000 rows  `synthetic_data.sql`
 
 ```powershell
-sqlplus cloudmeta@localhost:1521/FREEPDB1 @synthetic_data.sql 10000
+sqlplus cloudmeta@localhost:1521/FREEPDB1 '@synthetic_data.sql' 10000
 ```
 Expected: `inserted 10000 of 10000`, `PL/SQL procedure successfully completed.`, then
 ```
@@ -198,12 +198,12 @@ SYNTHETIC_DUPLICATE_GROUPS
 ## 5. EXPLAIN PLAN demo  `explain_plan_demo.sql`
 
 ```powershell
-sqlplus cloudmeta@localhost:1521/FREEPDB1 @explain_plan_demo.sql
+sqlplus cloudmeta@localhost:1521/FREEPDB1 '@explain_plan_demo.sql'
 ```
 Then repeat with 100,000 rows:
 ```powershell
-sqlplus cloudmeta@localhost:1521/FREEPDB1 @synthetic_data.sql 100000
-sqlplus cloudmeta@localhost:1521/FREEPDB1 @explain_plan_demo.sql
+sqlplus cloudmeta@localhost:1521/FREEPDB1 '@synthetic_data.sql' 100000
+sqlplus cloudmeta@localhost:1521/FREEPDB1 '@explain_plan_demo.sql'
 ```
 Paste each `explain_plan_demo.log` into `docs/01-explain-results.md` (blank sections provided). **I have not seen any real plan; the table below is a prediction to test, not a result.**
 
@@ -227,7 +227,7 @@ After step 5 the three `ix_logs_*` indexes exist again.
 ## 6. Clean up synthetic data  `cleanup_synthetic.sql`
 
 ```powershell
-sqlplus cloudmeta@localhost:1521/FREEPDB1 @cleanup_synthetic.sql
+sqlplus cloudmeta@localhost:1521/FREEPDB1 '@cleanup_synthetic.sql'
 ```
 Expected final line: `USERS_ROWS 3  FILES_ROWS 6  ACCESS_LOGS_ROWS 10`.
 
@@ -235,9 +235,9 @@ Expected final line: `USERS_ROWS 3  FILES_ROWS 6  ACCESS_LOGS_ROWS 10`.
 
 This destroys the revised schema to rebuild the old one. Order:
 ```powershell
-sqlplus cloudmeta@localhost:1521/FREEPDB1 @drop_all.sql          # type DROP when asked; prints "Dropped 17 tables." (or the number you had), tables_left 0
-sqlplus cloudmeta@localhost:1521/FREEPDB1 @legacy_schema.sql     # builds the original 5 tables; expect no errors
-sqlplus cloudmeta@localhost:1521/FREEPDB1 @migrate_legacy.sql
+sqlplus cloudmeta@localhost:1521/FREEPDB1 '@drop_all.sql'          # type DROP when asked; prints "Dropped 17 tables." (or the number you had), tables_left 0
+sqlplus cloudmeta@localhost:1521/FREEPDB1 '@legacy_schema.sql'     # builds the original 5 tables; expect no errors
+sqlplus cloudmeta@localhost:1521/FREEPDB1 '@migrate_legacy.sql'
 ```
 Legacy state after step 2: Users 3, Cloud_Providers 3, Files **5** (ids 1, 2, 3, 4, 6; id 5 was the deleted temp file), Storage_Locations 3, Access_Logs 3.
 
@@ -269,7 +269,7 @@ ROLLBACK;
 ```
 The demo scripts also work on the migrated data (they only rely on project_report.pdf, presentation.pptx and harini@example.com). Exception: `v_duplicate_files` is empty because the legacy rows have no content hashes.
 
-To undo: `sqlplus cloudmeta@localhost:1521/FREEPDB1 @rollback_migration.sql` (type ROLLBACK), which restores the original five tables.
+To undo: `sqlplus cloudmeta@localhost:1521/FREEPDB1 '@rollback_migration.sql'` (type ROLLBACK), which restores the original five tables.
 
 ---
 

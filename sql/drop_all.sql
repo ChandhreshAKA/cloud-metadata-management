@@ -2,7 +2,7 @@
 -- drop_all.sql  STATUS: NOT EXECUTED
 -- DESTRUCTIVE: drops EVERY table and view in the connected schema (including
 -- LEGACY_* tables). Refuses to run as SYS or SYSTEM. Asks for confirmation.
---   sqlplus cloudmeta@localhost:1521/FREEPDB1 @drop_all.sql
+--   sqlplus cloudmeta@localhost:1521/FREEPDB1 '@drop_all.sql'
 -- =====================================================================
 SET DEFINE ON
 SET VERIFY OFF
