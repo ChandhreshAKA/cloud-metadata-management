@@ -1,0 +1,8 @@
+# Required runtime dependencies (direct dependencies pinned; pip resolves the rest).
+# Chunk 4 will add: cryptography (already installed as a dependency of oracledb, to be pinned then).
+fastapi==0.162.0
+uvicorn==0.54.0
+oracledb==26.0.1
+argon2-cffi==25.1.0
+PyJWT==2.15.1
+python-dotenv==1.2.4

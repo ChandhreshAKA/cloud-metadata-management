@@ -1,0 +1,27 @@
+# Tool configuration only. Dependencies live in requirements*.txt.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: needs a live Oracle database (set RUN_INTEGRATION=1 and the ORACLE_* variables)",
+]
+addopts = "-ra"
+filterwarnings = [
+    # TestClient prefers a newer httpx fork; we keep the pinned httpx we have vetted
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated:Warning",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S"]
+ignore = ["S101"]  # assert is normal in tests
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI dependencies are meant to be called in argument defaults
+extend-immutable-calls = ["fastapi.Depends", "app.auth.deps.require_permission", "app.auth.deps.require_role"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106", "S608"]

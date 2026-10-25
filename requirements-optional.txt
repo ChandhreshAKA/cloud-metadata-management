@@ -1,0 +1,5 @@
+# OPTIONAL: only needed by later chunks (dashboard, reports). Not installed or used in chunk 2.
+# Versions will be pinned when those chunks are built. Do not install these now.
+# streamlit
+# pandas
+# plotly

@@ -1,1 +1,23 @@
+# secrets and local config
+.env
+*.pem
+*.key
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# logs and generated output
 *.log
+
+# simulated storage (chunk 4)
+storage_sim/
+
+# stray Windows cache folder created by an unexpanded %SystemDrive% variable
+%SystemDrive%/
