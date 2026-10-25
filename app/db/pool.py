@@ -15,9 +15,13 @@ import oracledb
 from app.config import Settings
 from app.db.errors import DatabaseUnavailableError, map_db_error
 from app.db.repositories.audit import OracleAuditRepository
+from app.db.repositories.providers import OracleProviderRepository
 from app.db.repositories.users import OracleUserRepository
 
 log = logging.getLogger(__name__)
+
+# Return NUMBER columns with a scale as Decimal instead of float: money and scores must be exact.
+oracledb.defaults.fetch_decimals = True
 
 
 class OracleSession:
@@ -27,6 +31,7 @@ class OracleSession:
         self.connection = connection
         self.users = OracleUserRepository(connection)
         self.audit = OracleAuditRepository(connection)
+        self.providers = OracleProviderRepository(connection)
 
 
 class OracleDatabase:

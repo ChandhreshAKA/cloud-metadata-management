@@ -13,10 +13,21 @@ from __future__ import annotations
 import copy
 from collections.abc import Iterator
 from contextlib import contextmanager
+from decimal import Decimal
+from statistics import median
 from typing import Any
 
 from app.db.base import UserRecord
-from app.db.errors import DatabaseError, DatabaseUnavailableError, UniqueViolationError
+from app.db.errors import (
+    CheckViolationError,
+    DatabaseError,
+    DatabaseUnavailableError,
+    ReferenceViolationError,
+    UniqueViolationError,
+)
+from app.providers.models import PricingRow, ProviderRow, RegionRow
+from app.selection.models import Candidate, Policy, TierPricing, Weights
+from app.selection.presets import DEFAULT_POLICY, PRESETS
 
 
 class _FakeUsers:
@@ -76,17 +87,126 @@ class _FakeAudit:
         )
 
 
+class _FakeProviders:
+    """In-memory provider registry. Mimics the constraints that matter (unique codes, score range,
+    tier foreign key) by raising the same domain errors the Oracle layer raises."""
+
+    TIERS = ("HOT", "COOL", "COLD", "ARCHIVE")
+
+    def __init__(self, state: dict[str, Any]):
+        self._s = state
+
+    def _next(self, key: str) -> int:
+        self._s[key] += 1
+        return self._s[key]
+
+    def list_providers(self) -> list[ProviderRow]:
+        return sorted(self._s["providers"].values(), key=lambda p: p.provider_id)
+
+    def get_provider(self, provider_id: int) -> ProviderRow | None:
+        return self._s["providers"].get(provider_id)
+
+    def create_provider(self, code: str, name: str, max_object_bytes: int) -> int:
+        for p in self._s["providers"].values():
+            if p.provider_code == code:
+                raise UniqueViolationError("ORA-00001 ...", "UQ_PROVIDERS_CODE")
+            if p.provider_name == name:
+                raise UniqueViolationError("ORA-00001 ...", "UQ_PROVIDERS_NAME")
+        provider_id = self._next("next_provider_id")
+        self._s["providers"][provider_id] = ProviderRow(
+            provider_id, code, name, max_object_bytes, True
+        )
+        return provider_id
+
+    def update_provider(self, row: ProviderRow) -> None:
+        self._s["providers"][row.provider_id] = row
+
+    def list_regions(self, provider_id: int | None = None) -> list[RegionRow]:
+        rows = sorted(self._s["regions"].values(), key=lambda r: r.region_id)
+        return [r for r in rows if provider_id is None or r.provider_id == provider_id]
+
+    def get_region(self, region_id: int) -> RegionRow | None:
+        return self._s["regions"].get(region_id)
+
+    def create_region(self, provider_id, region_code, bucket_name, reliability_score,
+                      security_score, egress_usd_per_gb, is_illustrative) -> int:  # fmt: skip
+        for r in self._s["regions"].values():
+            if r.provider_id == provider_id and r.region_code == region_code:
+                raise UniqueViolationError("ORA-00001 ...", "UQ_REGIONS_PROVIDER_CODE")
+            if r.provider_id == provider_id and r.bucket_name == bucket_name:
+                raise UniqueViolationError("ORA-00001 ...", "UQ_REGIONS_PROVIDER_BUCKET")
+        if not (0 <= reliability_score <= 10):
+            raise CheckViolationError("ORA-02290 ...", "CK_REGIONS_RELIABILITY")
+        region_id = self._next("next_region_id")
+        self._s["regions"][region_id] = RegionRow(
+            region_id, provider_id, region_code, bucket_name, reliability_score, security_score,
+            egress_usd_per_gb, "UP", None, True, is_illustrative,
+        )  # fmt: skip
+        return region_id
+
+    def update_region(self, row: RegionRow) -> None:
+        self._s["regions"][row.region_id] = row
+
+    def list_pricing(self, region_id: int | None = None) -> list[PricingRow]:
+        rows = sorted(self._s["pricing"].values(), key=lambda p: (p.region_id, p.tier_code))
+        return [p for p in rows if region_id is None or p.region_id == region_id]
+
+    def upsert_pricing(self, row: PricingRow) -> None:
+        if row.tier_code not in self.TIERS:
+            raise ReferenceViolationError("ORA-02291 ...", "FK_PRICING_TIER")
+        for (region_id, tier), other in self._s["pricing"].items():
+            if region_id == row.region_id and tier != row.tier_code:
+                if other.native_class_name == row.native_class_name:
+                    raise UniqueViolationError("ORA-00001 ...", "UQ_PRICING_NATIVE")
+        self._s["pricing"][(row.region_id, row.tier_code)] = row
+
+    def candidates(self, tier: str) -> list[Candidate]:
+        result = []
+        for r in self.list_regions():
+            p = self._s["providers"][r.provider_id]
+            price = self._s["pricing"].get((r.region_id, tier))
+            samples = self._s["latencies"].get(r.region_id, [])
+            result.append(
+                Candidate(
+                    region_id=r.region_id, provider_id=r.provider_id, provider_code=p.provider_code,
+                    provider_name=p.provider_name, region_code=r.region_code,
+                    provider_active=p.is_active, region_active=r.is_active,
+                    health_status=r.health_status, reliability_score=r.reliability_score,
+                    security_score=r.security_score, max_object_bytes=p.max_object_bytes,
+                    egress_usd_per_gb=r.egress_usd_per_gb,
+                    pricing=None if price is None else TierPricing(
+                        price.tier_code, price.storage_usd_per_gb_month, price.retrieval_usd_per_gb,
+                        price.put_usd_per_1k, price.get_usd_per_1k, price.min_storage_days),
+                    latency_ms=median(samples) if samples else None,
+                    is_illustrative=r.is_illustrative,
+                )
+            )  # fmt: skip
+        return result
+
+    def weight_profiles(self) -> tuple[dict[str, Weights], str | None]:
+        return dict(self._s["profiles"]), self._s["default_profile"]
+
+    def policy(self) -> Policy:
+        return self._s["policy"]
+
+
 class FakeSession:
     def __init__(self, state: dict[str, Any], database: FakeDatabase):
         self.users = _FakeUsers(state)
         self.audit = _FakeAudit(state, database)
+        self.providers = _FakeProviders(state)
 
 
 class FakeDatabase:
     """In-memory database with real commit/rollback behaviour (snapshot and restore)."""
 
     def __init__(self) -> None:
-        self.state: dict[str, Any] = {"users": {}, "audit": [], "next_id": 0, "last_login": {}}
+        self.state: dict[str, Any] = {
+            "users": {}, "audit": [], "next_id": 0, "last_login": {},
+            "providers": {}, "regions": {}, "pricing": {}, "latencies": {},
+            "next_provider_id": 0, "next_region_id": 0,
+            "profiles": dict(PRESETS), "default_profile": "BALANCED", "policy": DEFAULT_POLICY,
+        }  # fmt: skip
         self.available = True
         self.fail_audit_with: Exception | None = None
         self.fail_create_with: Exception | None = None
@@ -186,6 +306,7 @@ class RecordingConnection:
 
 
 __all__ = [
+    "Decimal",
     "DatabaseError",
     "FakeDatabase",
     "RecordingConnection",

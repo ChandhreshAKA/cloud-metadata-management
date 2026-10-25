@@ -11,6 +11,7 @@ The live-Oracle proof (injection strings against the real database) is in tests/
 
 import ast
 import json
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -130,24 +131,100 @@ def _is_constant_sql(node: ast.expr, constants: dict[str, ast.expr]) -> bool:
 REPO_DIR = Path(__file__).resolve().parents[2] / "app" / "db" / "repositories"
 
 
+def _call_name(call: ast.Call) -> str | None:
+    if isinstance(call.func, ast.Attribute):
+        return call.func.attr
+    if isinstance(call.func, ast.Name):
+        return call.func.id
+    return None
+
+
+def _check_execute_calls(tree: ast.Module) -> list[str]:
+    """Return a problem description for every execute() whose SQL is not provably constant.
+
+    Accepted: a literal, a module constant, an f-string of module constants, or a *parameter* of
+    the enclosing function (a helper such as `_all(self, sql, binds)`) provided EVERY call to
+    that helper passes a constant for that parameter.
+    """
+    constants = _module_constants(tree)
+    problems: list[str] = []
+    functions = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
+    for function in functions:
+        params = [a.arg for a in function.args.args]
+        offset = 1 if params and params[0] == "self" else 0
+        for call in (n for n in ast.walk(function) if isinstance(n, ast.Call)):
+            if not (isinstance(call.func, ast.Attribute) and call.func.attr == "execute"):
+                continue
+            if not call.args:
+                problems.append(f"line {call.lineno}: execute() without SQL")
+                continue
+            sql = call.args[0]
+            if _is_constant_sql(sql, constants):
+                continue
+            if isinstance(sql, ast.Name) and sql.id in params:
+                index = params.index(sql.id) - offset
+                callers = [
+                    c for c in ast.walk(tree)
+                    if isinstance(c, ast.Call) and _call_name(c) == function.name
+                ]  # fmt: skip
+                if not callers:
+                    problems.append(f"line {call.lineno}: helper {function.name} is never called")
+                for caller in callers:
+                    if len(caller.args) <= index or not _is_constant_sql(
+                        caller.args[index], constants
+                    ):
+                        problems.append(
+                            f"line {caller.lineno}: {function.name}() called with non-constant SQL"
+                        )
+                continue
+            problems.append(f"line {call.lineno}: SQL built from a non-constant")
+    return problems
+
+
 @pytest.mark.parametrize("path", sorted(REPO_DIR.glob("*.py")), ids=lambda p: p.name)
 def test_every_execute_call_uses_a_constant_sql_string(path):
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    constants = _module_constants(tree)
-    executes = [
-        n
-        for n in ast.walk(tree)
-        if isinstance(n, ast.Call)
-        and isinstance(n.func, ast.Attribute)
-        and n.func.attr == "execute"
-    ]
-    for call in executes:
-        assert call.args, f"{path.name}:{call.lineno} execute() without SQL"
-        assert _is_constant_sql(call.args[0], constants), (
-            f"{path.name}:{call.lineno} builds SQL from a non-constant"
-        )
-    if path.name in {"users.py", "audit.py"}:
+    assert _check_execute_calls(tree) == [], path.name
+    if path.name in {"users.py", "audit.py", "providers.py"}:
+        executes = [
+            n for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "execute"
+        ]  # fmt: skip
         assert executes, "scan found no execute() calls: the test would be vacuous"
+
+
+def test_scan_flags_a_helper_called_with_a_formatted_string():
+    bad = ast.parse(
+        textwrap.dedent(
+            """
+            class R:
+                def _all(self, sql, binds=None):
+                    self.c.execute(sql, binds)
+
+                def find(self, name):
+                    return self._all(f"SELECT * FROM t WHERE n = '{name}'")
+            """
+        )
+    )
+    assert any("non-constant SQL" in p for p in _check_execute_calls(bad))
+
+
+def test_scan_accepts_a_helper_only_called_with_constants():
+    good = ast.parse(
+        textwrap.dedent(
+            """
+            Q = "SELECT 1 FROM dual"
+
+            class R:
+                def _all(self, sql, binds=None):
+                    self.c.execute(sql, binds)
+
+                def find(self):
+                    return self._all(Q)
+            """
+        )
+    )
+    assert _check_execute_calls(good) == []
 
 
 def test_scan_would_catch_string_formatting():

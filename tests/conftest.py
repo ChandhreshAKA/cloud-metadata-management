@@ -9,6 +9,7 @@ from app.auth.passwords import hash_password
 from app.config import Settings
 from app.main import create_app
 from tests.fakes import FakeDatabase
+from tests.registry_data import seed_registry
 
 PASSWORD = "correct-horse-battery"  # noqa: S105  (test value)
 
@@ -63,3 +64,21 @@ def login(client: TestClient):
         return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
     return _login
+
+
+@pytest.fixture
+def seeded(db: FakeDatabase) -> FakeDatabase:
+    """The fake database loaded with the Chunk 1 provider reference data (illustrative values)."""
+    seed_registry(db)
+    return db
+
+
+@pytest.fixture
+def as_role(client, seeded, make_user, login):
+    """Return Authorization headers for a fresh user of the given role."""
+
+    def _as(role: str) -> dict[str, str]:
+        _, email = make_user(role=role)
+        return login(email)
+
+    return _as

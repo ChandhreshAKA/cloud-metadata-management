@@ -104,4 +104,13 @@ CLIENT_MESSAGES: dict[str, str] = {
     "CK_USERS_EMAIL_FORMAT": "E-mail address is not valid",
     "CK_USERS_ROLE": "Role is not valid",
     "FK_FILES_OWNER": "Referenced user does not exist",
+    "UQ_PROVIDERS_CODE": "A provider with that code already exists",
+    "UQ_PROVIDERS_NAME": "A provider with that name already exists",
+    "UQ_REGIONS_PROVIDER_CODE": "That provider already has a region with that code",
+    "UQ_REGIONS_PROVIDER_BUCKET": "That provider already uses that bucket name",
+    "FK_PRICING_TIER": "Unknown storage tier",
+    "UQ_PRICING_NATIVE": "That region already has a price row using that class name",
+    "CK_REGIONS_RELIABILITY": "Reliability score must be between 0 and 10",
+    "CK_REGIONS_SECURITY": "Security score must be between 0 and 10",
+    "CK_PRICING_NONNEG": "Prices must not be negative",
 }

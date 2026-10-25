@@ -15,7 +15,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.api.routers import auth, health, protected
+from app.api.routers import auth, health, protected, providers, selection
 from app.config import Settings, load_settings
 from app.db.base import Database
 from app.db.errors import (
@@ -30,6 +30,9 @@ from app.db.errors import (
     ValueTooLargeError,
 )
 from app.db.pool import OracleDatabase
+from app.providers.service import NotFoundError
+from app.selection.presets import WeightError
+from app.selection.service import InvalidSelectionRequest, UnknownPresetError
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +52,16 @@ def _register_error_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=422, content={"detail": "Invalid request", "errors": errors}
         )
+
+    @app.exception_handler(NotFoundError)
+    async def not_found(_: Request, exc: NotFoundError) -> JSONResponse:
+        return _json(404, str(exc))
+
+    @app.exception_handler(WeightError)
+    @app.exception_handler(UnknownPresetError)
+    @app.exception_handler(InvalidSelectionRequest)
+    async def bad_selection_input(_: Request, exc: Exception) -> JSONResponse:
+        return _json(422, str(exc))
 
     @app.exception_handler(DuplicateEmailError)
     async def duplicate_email(_: Request, __: DuplicateEmailError) -> JSONResponse:
@@ -101,13 +114,15 @@ def create_app(database: Database | None = None, settings: Settings | None = Non
 
     app = FastAPI(
         title="Multi-Cloud Metadata Manager",
-        version="0.2.0",
-        description="Chunk 2: authentication, RBAC and audit. Provider selection, storage and "
-        "monitoring arrive in later chunks.",
+        version="0.3.0",
+        description="Chunks 2-3: authentication, RBAC, audit, provider registry and the provider "
+        "selection engine (dry run). Storage and monitoring arrive in later chunks.",
         lifespan=lifespan,
     )
     _register_error_handlers(app)
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(protected.router)
+    app.include_router(providers.router)
+    app.include_router(selection.router)
     return app

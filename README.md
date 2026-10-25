@@ -3,13 +3,14 @@
 Course project (DBMS): a central Oracle metadata store plus an API for authentication, role-based
 access control and auditing of multi-cloud file storage. Providers are **simulated** (see Status).
 
-## Status (end of Chunk 2)
+## Status (end of Chunk 3)
 
 | Area | State |
 |---|---|
 | Oracle schema, migration, demos, indexes (`sql/`) | Done and executed on Oracle 26ai Free (Chunk 1) |
 | Config, DB layer, register, login (Argon2 + JWT), RBAC, audit, health | **Built and verified.** 127 unit tests pass (fake database); 13 integration tests pass against Oracle 26ai Free (run by the project owner, 1.93 s) |
-| Provider selection, storage, encryption, monitoring, dashboard | Not built yet (later chunks) |
+| Provider registry (admin-only writes) and the selection engine, dry-run endpoints, worked example, baselines | **Built and verified.** 275 unit tests; 29 integration tests pass against Oracle (run at build time). See `docs/03-selection-engine.md` |
+| Storage, encryption, upload/download, duplicates and cold files, demo script, test report | Not built yet (later chunks) |
 | Account lockout, password reset, token revocation, rate limiting | Deliberately not built |
 
 ## Prerequisites
@@ -112,7 +113,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8000/protected/files -Headers $auth     
 Invoke-RestMethod -Uri http://127.0.0.1:8000/protected/providers -Headers $auth      # USER: 403 and an ACCESS_DENIED audit row
 ```
 
-## Endpoints (Chunk 2)
+## Endpoints
 
 | Method and path | Who | Purpose |
 |---|---|---|
@@ -123,6 +124,12 @@ Invoke-RestMethod -Uri http://127.0.0.1:8000/protected/providers -Headers $auth 
 | `GET /protected/files` | USER | RBAC demo: "manage own files" |
 | `GET /protected/providers` | ADMIN | RBAC demo: "manage providers" |
 | `GET /protected/audit` | ADMIN, AUDITOR | RBAC demo: "read the audit log" (read-only) |
+| `GET /providers` | any logged-in role | providers, regions, availability, scores, pricing |
+| `POST /providers`, `PATCH /providers/{id}` | ADMIN | register, rename, resize limit, enable/disable |
+| `POST /providers/{id}/regions`, `PATCH /regions/{id}` | ADMIN | register region, change scores, egress, availability |
+| `PUT /regions/{id}/pricing/{tier}` | ADMIN | create or replace a tier's prices |
+| `POST /selection/compare` | any logged-in role | all regions side by side + winner under each preset (dry run) |
+| `POST /selection/select` | any logged-in role | rank, explain, baselines (dry run, writes nothing) |
 
 ## Permission table (single source of truth: `app/auth/rbac.py`)
 
@@ -140,10 +147,36 @@ ADMIN has no own-file permissions in this chunk; add them to the table if admins
 Every request re-reads the user's **role and status from the database**, so a role change or a
 disabled account takes effect immediately, and a forged `role` claim in a token has no effect.
 
-## Audit events written in this chunk
+## Provider selection (Chunk 3)
+
+Print the fully worked numeric example (illustrative AWS / Azure / Google Cloud numbers, every intermediate value):
+
+```powershell
+.\.venv\Scripts\python.exe scripts\worked_example.py
+```
+
+Optional: store the reliability minimums used by the hard filter in the database (the code has the same values as defaults):
+
+```powershell
+cd sql
+sqlplus cloudmeta@localhost:1521/FREEPDB1 '@seed_selection_config.sql'
+cd ..
+```
+
+Try a dry run (after logging in as in the example above, `$auth` holds the token header):
+
+```powershell
+$body = @{ file_size_bytes = 1073741824; security_level = "HIGH"; preset = "SECURE" } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/selection/select -Headers $auth -ContentType "application/json" -Body $body
+```
+
+All prices, scores and latencies in the seed data are **illustrative**. The full method, formulas, tie-break order and limitations are in `docs/03-selection-engine.md`.
+
+## Audit events written
 
 `USER_REGISTERED` (success and duplicate-email failure), `LOGIN_OK`, `LOGIN_FAILED` (the reason is
-stored internally; the client always gets the same 401), `ACCESS_DENIED` (403). Audit rows are
+stored internally; the client always gets the same 401), `ACCESS_DENIED` (403), and for registry
+changes `CONFIG_CHANGED` and `PROVIDER_STATUS_CHANGED` (old and new values in `details_json`). Audit rows are
 committed in their own transaction so they survive the failed request, and if an audit write fails
 the request fails too. Requests with a missing or invalid token (401) are not audited.
 
@@ -179,7 +212,9 @@ app/
   auth/                 passwords.py (Argon2), tokens.py (JWT), rbac.py (permission table),
                         service.py (register/login), deps.py (current user, require_permission)
   audit/service.py      audit events
-  api/                  schemas.py, routers/ (auth, health, protected)
+  providers/            module 3: registry service and row types
+  selection/            module 4: engine.py (pure), models, presets, explain, baselines, example, service
+  api/                  schemas*.py, routers/ (auth, health, protected, providers, selection)
 scripts/set_password.py activate seeded demo users
 sql/                    Chunk 1 database scripts (schema, seed, demos, migration)
 docs/                   design, schema audit, run guide, results

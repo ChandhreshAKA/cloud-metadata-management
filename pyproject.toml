@@ -24,4 +24,5 @@ ignore = ["S101"]  # assert is normal in tests
 extend-immutable-calls = ["fastapi.Depends", "app.auth.deps.require_permission", "app.auth.deps.require_role"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S105", "S106", "S608"]
+"tests/**" = ["S105", "S106", "S608", "S311", "E501"]
+"scripts/worked_example.py" = ["E501"]  # prints wide tables; long literals are intentional
