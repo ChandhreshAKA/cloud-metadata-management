@@ -135,7 +135,7 @@ CREATE UNIQUE INDEX ux_weights_one_default ON weight_profiles (CASE WHEN is_defa
 CREATE TABLE system_config (
     config_key    VARCHAR2(80)  NOT NULL,
     config_value  VARCHAR2(200) NOT NULL,
-    description   VARCHAR2(300) NOT NULL,
+    description   VARCHAR2(300) NOT NULL, 
     updated_at    TIMESTAMP(6)  DEFAULT SYSTIMESTAMP NOT NULL,
     updated_by    NUMBER,
     CONSTRAINT pk_system_config PRIMARY KEY (config_key),
