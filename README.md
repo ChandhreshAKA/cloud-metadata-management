@@ -157,7 +157,7 @@ ADMIN has no own-file permissions in this chunk; add them to the table if admins
 Every request re-reads the user's **role and status from the database**, so a role change or a
 disabled account takes effect immediately, and a forged `role` claim in a token has no effect.
 
-## Provider selection (Chunk 3)
+## Provider selection 
 
 Print the fully worked numeric example (illustrative AWS / Azure / Google Cloud numbers, every intermediate value):
 
