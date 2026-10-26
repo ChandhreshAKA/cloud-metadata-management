@@ -22,7 +22,7 @@ CREATE TABLE storage_tiers (
     CONSTRAINT uq_storage_tiers_rank UNIQUE (tier_rank)
 );
 
--- ---------------------------------------------------------------------
+-- --------------------------------------------------------------------
 -- Users (credentials and account state added for chunk 2)
 -- ---------------------------------------------------------------------
 CREATE TABLE users (
