@@ -3,7 +3,7 @@
 Course project (DBMS): a central Oracle metadata store plus an API for authentication, role-based
 access control and auditing of multi-cloud file storage. Providers are **simulated** (see Status).
 
-## Status (end of Chunk 4)
+## Status
 
 | Area | State |
 |---|---|
