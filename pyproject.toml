@@ -1,5 +1,5 @@
 # Tool configuration only. Dependencies live in requirements*.txt.
-
+ 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
