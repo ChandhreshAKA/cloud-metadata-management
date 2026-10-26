@@ -1,5 +1,5 @@
 -- =====================================================================
--- indexes.sql (Chunk 1)  STATUS: NOT EXECUTED
+-- indexes.sql (Chunk 1)  STATUS: NOT EXECUTED 
 -- Each index is tied to a named query in docs/01-schema-audit.md section 6.
 -- Already indexed by constraints (no extra index needed): every PK, every UNIQUE,
 -- storage_locations(file_id) via uq_locations_file_region,
