@@ -7,11 +7,11 @@ access control and auditing of multi-cloud file storage. Providers are **simulat
 
 | Area | State |
 |---|---|
-| Oracle schema, migration, demos, indexes (`sql/`) | Done and executed on Oracle 26ai Free (Chunk 1) |
+| Oracle schema, migration, demos, indexes (`sql/`) | Done and executed on Oracle 26ai Free ( 1) |
 | Config, DB layer, register, login (Argon2 + JWT), RBAC, audit, health | **Built and verified.** 127 unit tests pass (fake database); 13 integration tests pass against Oracle 26ai Free (run by the project owner, 1.93 s) |
 | Provider registry (admin-only writes) and the selection engine, dry-run endpoints, worked example, baselines | **Built and verified.** 275 unit tests; 29 integration tests pass against Oracle (run at build time). See `docs/03-selection-engine.md` |
 | Encrypted upload, download and delete to **SIMULATED** local-folder storage (AES-256-GCM, selection engine called on every upload) | **Built and verified.** 370 unit tests; 40 integration tests pass against Oracle; real-HTTP end-to-end run done. See `docs/04-storage-encryption.md` |
-| Duplicate and cold-file reports, demo script, test report | Not built yet (later chunks) |
+| Duplicate and cold-file reports, demo script, test report | Not built yet (later s) |
 | Replication, failover, real cloud adapters, key rotation, orphan sweep | Not built (out of scope) |
 | Account lockout, password reset, token revocation, rate limiting | Deliberately not built 
 
@@ -153,7 +153,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8000/protected/providers -Headers $auth 
 | `config:read`, `audit:read`, `report:read` | | yes | yes |
 
 AUDITOR holds only read permissions (a test enforces that it holds no modifying permission).
-ADMIN has no own-file permissions in this chunk; add them to the table if admins should upload.
+ADMIN has no own-file permissions in this ; add them to the table if admins should upload.
 Every request re-reads the user's **role and status from the database**, so a role change or a
 disabled account takes effect immediately, and a forged `role` claim in a token has no effect.
 
@@ -182,7 +182,7 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/selection/select -Head
 
 All prices, scores and latencies in the seed data are **illustrative**. The full method, formulas, tie-break order and limitations are in `docs/03-selection-engine.md`.
 
-## Encrypted upload and download (Chunk 4; storage is SIMULATED)
+## Encrypted upload and download ( 4; storage is SIMULATED)
 
 Generate a master key and put it in `.env` as `MASTER_KEY=...`:
 
@@ -233,7 +233,7 @@ characters`, generate one with the command in Setup.
 (`--port 8001`) or find the process: `Get-NetTCPConnection -LocalPort 8000 | Select OwningProcess`
 then `Stop-Process -Id <id>`.
 
-## Folder structure (Chunk 0 layout)
+## Folder structure ( 0 layout)
 
 ```
 app/
@@ -251,7 +251,7 @@ app/
   files/                upload / download / delete service, errors, row types
   api/                  schemas*.py, routers/ (auth, health, protected, providers, selection)
 scripts/set_password.py activate seeded demo users
-sql/                    Chunk 1 database scripts (schema, seed, demos, migration)
+sql/                     1 database scripts (schema, seed, demos, migration)
 docs/                   design, schema audit, run guide, results
 tests/unit/             fake-database tests (no Oracle)
 tests/integration/      tests that need Oracle (you run them)
