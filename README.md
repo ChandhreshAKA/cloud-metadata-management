@@ -13,7 +13,7 @@ access control and auditing of multi-cloud file storage. Providers are **simulat
 | Encrypted upload, download and delete to **SIMULATED** local-folder storage (AES-256-GCM, selection engine called on every upload) | **Built and verified.** 370 unit tests; 40 integration tests pass against Oracle; real-HTTP end-to-end run done. See `docs/04-storage-encryption.md` |
 | Duplicate and cold-file reports, demo script, test report | Not built yet (later chunks) |
 | Replication, failover, real cloud adapters, key rotation, orphan sweep | Not built (out of scope) |
-| Account lockout, password reset, token revocation, rate limiting | Deliberately not built |
+| Account lockout, password reset, token revocation, rate limiting | Deliberately not built 
 
 ## Prerequisites
 
