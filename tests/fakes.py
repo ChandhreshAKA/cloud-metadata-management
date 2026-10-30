@@ -13,6 +13,7 @@ from __future__ import annotations
 import copy
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime
 from decimal import Decimal
 from statistics import median
 from typing import Any
@@ -291,12 +292,42 @@ class _FakeFiles:
         self._s["locations"].pop(location_id, None)
 
 
+class _FakeReports:
+    """Canned report rows. The grouping and threshold SQL is NOT reimplemented here: whether the
+    real SQL finds the right files is proved against Oracle (tests/integration/test_oracle_reports.py).
+    What this fake lets the unit tests prove is the application layer: scoping by owner, passing the
+    thresholds through, the money arithmetic and the response shape."""
+
+    def __init__(self, state: dict[str, Any]):
+        self._s = state
+
+    def db_now(self):
+        return self._s["report_now"]
+
+    def cold_config(self) -> dict[str, str]:
+        return dict(self._s["report_config"])
+
+    def duplicate_rows(self, owner_id):
+        rows = self._s["report_duplicate_rows"]
+        return [r for r in rows if owner_id is None or r.owner_id == owner_id]
+
+    def cold_rows(self, owner_id, as_of, thresholds):
+        self._s["report_cold_calls"].append((owner_id, as_of, thresholds))
+        return [
+            r for r in self._s["report_cold_rows"]
+            if (owner_id is None or r.owner_id == owner_id)
+            and r.idle_days > thresholds.idle_days
+            and r.downloads_window < thresholds.max_accesses
+        ]  # fmt: skip
+
+
 class FakeSession:
     def __init__(self, state: dict[str, Any], database: FakeDatabase):
         self.users = _FakeUsers(state)
         self.audit = _FakeAudit(state, database)
         self.providers = _FakeProviders(state)
         self.files = _FakeFiles(state)
+        self.reports = _FakeReports(state)
 
 
 class FakeDatabase:
@@ -310,6 +341,8 @@ class FakeDatabase:
             "files": {}, "encryption": {}, "locations": {}, "decisions": {}, "candidates": [],
             "access_logs": [], "next_file_id": 0, "next_location_id": 0, "next_decision_id": 0,
             "profiles": dict(PRESETS), "default_profile": "BALANCED", "policy": DEFAULT_POLICY,
+            "report_now": datetime(2026, 6, 1, 12, 0, 0), "report_config": {},
+            "report_duplicate_rows": [], "report_cold_rows": [], "report_cold_calls": [],
         }  # fmt: skip
         self.available = True
         self.fail_audit_with: Exception | None = None

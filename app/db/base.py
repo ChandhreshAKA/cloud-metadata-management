@@ -9,11 +9,13 @@ from __future__ import annotations
 
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, Protocol
 
 from app.files.models import StoredFile
 from app.providers.models import PricingRow, ProviderRow, RegionRow
+from app.reports.models import ColdRow, ColdThresholds, DuplicateRow
 from app.selection.models import Candidate, Policy, Weights
 
 
@@ -154,11 +156,34 @@ class FileRepository(Protocol):
     def delete_location(self, location_id: int) -> None: ...
 
 
+class ReportRepository(Protocol):
+    """Read-only queries behind the duplicate and cold-file reports (chunk 6)."""
+
+    def db_now(self) -> datetime:
+        """The database clock, so ages agree with stored timestamps."""
+        ...
+
+    def cold_config(self) -> dict[str, str]:
+        """system_config values for cold.idle_days, cold.max_accesses, cold.window_days (if set)."""
+        ...
+
+    def duplicate_rows(self, owner_id: int | None) -> list[DuplicateRow]:
+        """Every member of every group of 2+ files with the same owner and plaintext SHA-256."""
+        ...
+
+    def cold_rows(
+        self, owner_id: int | None, as_of: datetime, thresholds: ColdThresholds
+    ) -> list[ColdRow]:
+        """Files idle for MORE than idle_days with FEWER than max_accesses recent downloads."""
+        ...
+
+
 class Session(Protocol):
     users: UserRepository
     audit: AuditRepository
     providers: ProviderRepository
     files: FileRepository
+    reports: ReportRepository
 
 
 class Database(Protocol):

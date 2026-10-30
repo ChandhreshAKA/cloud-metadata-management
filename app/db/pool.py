@@ -17,6 +17,7 @@ from app.db.errors import DatabaseUnavailableError, map_db_error
 from app.db.repositories.audit import OracleAuditRepository
 from app.db.repositories.files import OracleFileRepository
 from app.db.repositories.providers import OracleProviderRepository
+from app.db.repositories.reports import OracleReportRepository
 from app.db.repositories.users import OracleUserRepository
 
 log = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ class OracleSession:
         self.audit = OracleAuditRepository(connection)
         self.providers = OracleProviderRepository(connection)
         self.files = OracleFileRepository(connection)
+        self.reports = OracleReportRepository(connection)
 
 
 class OracleDatabase:

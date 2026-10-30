@@ -3,7 +3,7 @@
 Course project (DBMS): a central Oracle metadata store plus an API for authentication, role-based
 access control and auditing of multi-cloud file storage. Providers are **simulated** (see Status).
 
-## Status (end of Chunk 4)
+## Status (chunks 1 to 4 and 6 built; documentation set complete; chunks 5 and 7 not built)
 
 | Area | State |
 |---|---|
@@ -11,8 +11,10 @@ access control and auditing of multi-cloud file storage. Providers are **simulat
 | Config, DB layer, register, login (Argon2 + JWT), RBAC, audit, health | **Built and verified.** 127 unit tests pass (fake database); 13 integration tests pass against Oracle 26ai Free (run by the project owner, 1.93 s) |
 | Provider registry (admin-only writes) and the selection engine, dry-run endpoints, worked example, baselines | **Built and verified.** 275 unit tests; 29 integration tests pass against Oracle (run at build time). See `docs/03-selection-engine.md` |
 | Encrypted upload, download and delete to **SIMULATED** local-folder storage (AES-256-GCM, selection engine called on every upload) | **Built and verified.** 370 unit tests; 40 integration tests pass against Oracle; real-HTTP end-to-end run done. See `docs/04-storage-encryption.md` |
-| Duplicate and cold-file reports, demo script, test report | Not built yet (later chunks) |
-| Replication, failover, real cloud adapters, key rotation, orphan sweep | Not built (out of scope) |
+| Read-only duplicate-file and cold-file reports (Chunk 6) with a seeded **synthetic** sample | **Built and verified.** 402 unit tests; 54 integration tests pass against Oracle; six deliberate SQL bugs all caught. See `docs/09-reports.md` |
+| Test report, limitations, objective map, report outline, demo checklist | **Written** (`docs/05` to `07`); the results tables are for you to fill from your own runs |
+| Monitoring, recommendations, savings and migration (objective 4), dashboard, scripted demo | **Not built** |
+| Replication, failover, migration workflow, real cloud adapters, TLS, key rotation, orphan sweep | **Not built** |
 | Account lockout, password reset, token revocation, rate limiting | Deliberately not built |
 
 ## Prerequisites
@@ -140,6 +142,8 @@ Invoke-RestMethod -Uri http://127.0.0.1:8000/protected/providers -Headers $auth 
 | `POST /files?file_name=..&security_level=..` | USER | upload (raw body): select provider, encrypt, store, record metadata |
 | `GET /files/{id}/download` | USER (owner) | fetch, decrypt, verify SHA-256, log latency |
 | `DELETE /files/{id}?confirm=true` | USER (owner) | delete with explicit confirmation; erases the key |
+| `GET /reports/duplicates` | any logged-in role | read-only: groups of identical files, wasted bytes, estimated monthly waste (USER: own files; ADMIN, AUDITOR: all) |
+| `GET /reports/cold-files?idle_days=..&max_accesses=..&window_days=..` | any logged-in role | read-only: "candidate for archival review" list with evidence |
 
 ## Permission table (single source of truth: `app/auth/rbac.py`)
 
@@ -232,6 +236,22 @@ characters`, generate one with the command in Setup.
 **3. Port already in use** (`[WinError 10048]` when starting uvicorn). Use another port
 (`--port 8001`) or find the process: `Get-NetTCPConnection -LocalPort 8000 | Select OwningProcess`
 then `Stop-Process -Id <id>`.
+
+## Documentation map
+
+| File | What it is |
+|---|---|
+| `docs/00-design.md` | system design, refreshed: every module and workflow marked built, partly built, simulated or **designed, not built** |
+| `docs/01-schema-audit.md`, `01-data-dictionary.md`, `01-run-guide.md` | database audit, dictionary, how to run the SQL scripts |
+| `docs/03-selection-engine.md` (and `03-review-package.md`) | selection engine, worked example, review material |
+| `docs/04-storage-encryption.md` | simulated storage, encryption, upload, download, delete |
+| `docs/05-test-report.md` | exact commands and **results tables for you to fill from your own runs** |
+| `docs/06-limitations-and-objectives.md` | what is simulated, what is not implemented, objective-to-evidence map |
+| `docs/07-report-outline-and-demo.md` | one-page report outline and the demo checklist |
+| `docs/08-demo-runbook.md` | every demo command in order |
+| `docs/09-reports.md` | Chunk 6: duplicate and cold-file reports, synthetic sample, commands, verification results |
+
+**Project status in one line:** database, auth and RBAC, provider selection, and encrypted upload/download to simulated storage are built and tested. Read-only duplicate and cold-file reports are built too. Replication and failover, monitoring and recommendations (objective 4) and the dashboard are **not built**.
 
 ## Folder structure (Chunk 0 layout)
 

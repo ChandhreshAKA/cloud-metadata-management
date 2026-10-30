@@ -1,132 +1,144 @@
-# Multi-Cloud Metadata & Storage Manager: Chunk 0 Design
+# System design (refreshed after Chunk 4)
 
-Status: design only. No application code or SQL. Each later chunk is built and tested against the contracts defined here.
+This document was first written in Chunk 0 (before any code) and has been **refreshed to say what
+actually exists**. Every part of the design carries one of these labels:
 
-Context found: the repo `ChandhreshAKA/cloud-metadata-management` holds one commit with a single `schema.sql` (users, cloud providers, files, storage locations, access logs, six indexes, one view, transaction examples). I only saw a summary of it. Chunk 1 audits it. It is treated as a starting point, not a constraint.
+| Label | Meaning |
+|---|---|
+| **BUILT** | implemented and tested; evidence is named |
+| **PARTLY BUILT** | some of it exists; the missing part is stated |
+| **DESIGNED, NOT BUILT** | a plan only. It is **not** a feature of the project |
+| **SIMULATED** | implemented, but against a stand-in (local folders, made-up prices), not a real cloud |
+
+Companion documents: `01-schema-audit.md` and `01-data-dictionary.md` (database), `03-selection-engine.md`,
+`04-storage-encryption.md`, `05-test-report.md` (results tables), `06-limitations-and-objectives.md`,
+`07-report-outline-and-demo.md`.
+
+## Status at a glance
+
+| # | Module | Status |
+|---|---|---|
+| M1 | Database and schema | **BUILT** |
+| M2 | Authentication and RBAC | **BUILT** (no lockout, no password reset, no token revocation) |
+| M3 | Provider registry and pricing | **BUILT** (prices and scores are illustrative) |
+| M4 | Selection engine | **BUILT** |
+| M5 | Storage abstraction and adapters | **BUILT, SIMULATED** (one local-folder adapter; no real cloud adapter) |
+| M6 | Encryption service | **BUILT** (AES-256-GCM is real; the master key is **SIMULATED** KMS) |
+| M7 | File and metadata service (upload, download, delete) | **BUILT** |
+| M8 | Replication and recovery | **DESIGNED, NOT BUILT** (schema columns and a view exist; no code) |
+| M9 | Audit and access logging | **BUILT** |
+| M10 | Monitoring and analytics | **DESIGNED, NOT BUILT** (SQL views exist; no module, report or dashboard) |
+| M11 | Duplicate detection and optimisation | **DESIGNED, NOT BUILT** (one SQL view exists; no module, no recommendations) |
+| M12 | API and dashboard | **PARTLY BUILT**: API and its OpenAPI page (`/docs`) are built; the **dashboard and the scripted demo are DESIGNED, NOT BUILT** |
 
 ---
 
 ## A. Problem statement
 
-Organisations that store files across several cloud providers (AWS S3, Azure Blob, Google Cloud Storage) end up with these problems:
+Organisations that store files across several cloud providers (AWS S3, Azure Blob, Google Cloud Storage) face:
 
-1. **Fragmented metadata.** Each provider holds its own listing of objects, tags and access records. No single place answers "where is this file, who owns it, how sensitive is it, which copies exist, and who touched it?" Cross-provider questions need ad-hoc scripts.
-2. **Hard-to-compare providers.** Storage price, request price, egress price, latency, durability and security features are published in different units, tiers and formats. Comparing them for one specific file is manual and goes stale.
-3. **Opaque selection.** Placement is usually fixed by habit ("we use X") or by the cheapest per-GB price. Nobody can say why a file went where it did, and a change in requirements (e.g. file becomes confidential) does not trigger a re-evaluation.
-4. **Poor visibility into usage and access.** Teams do not know which files are hot, which are cold, which are duplicated, or what each provider actually costs them. Waste stays hidden.
-5. **Access-control weaknesses.** Provider IAM is per account and per provider. There is no single role model, no uniform audit trail, and no read-only auditor role that sees everything but changes nothing.
-6. **Provider outages.** A single-provider copy is unavailable when that provider is down. Failover is manual, and nobody records which copies are stale or missing afterwards.
-7. **Wasted spend.** Duplicate files, cold data on hot tiers, and over-replicated data all cost money, and nothing flags them from recorded evidence.
+1. **Fragmented metadata.** Each provider keeps its own listing. Nothing answers "where is this file, who owns
+   it, how sensitive is it, and who touched it?" across providers.
+2. **Hard-to-compare providers.** Prices, latency, reliability and security come in different units and tiers.
+3. **Opaque selection.** Placement follows habit or the lowest per-GB price, and nobody can say why a file went where it did.
+4. **Poor visibility into usage and access.** Hot, cold and duplicated files are not identified.
+5. **Access-control weaknesses.** Provider IAM is per account; there is no single role model or read-only auditor.
+6. **Provider outages.** A single copy is unavailable when its provider is down.
+7. **Wasted spend.** Duplicates and cold data on expensive tiers cost money unnoticed.
 
-**Goal.** Build a centralised, normalised (at least 3NF) Oracle metadata system with an explainable, configurable weighted-scoring selection engine, role-based secure storage with optional replication and failure handling, and a monitoring layer that produces optimisation recommendations from recorded data or documented simulation assumptions.
+**Goal.** A centralised, normalised (3NF) Oracle metadata system with an explainable, configurable
+weighted-selection engine, role-based secure storage, and (planned) replication and monitoring.
 
-**Honesty boundary.** Provider calls are simulated behind an adapter interface. The application implements the metadata, logic, encryption and policy. Real cloud configuration is listed separately in section F.
-
----
+**Scope actually delivered:** problems 1, 2, 3 and 5 are addressed, and the security part of 7's cousin (data
+exposure) is addressed by encryption. **Problems 4, 6 and 7 are only designed:** no monitoring, no replication or
+failover, and no duplicate or waste reporting exist beyond the underlying SQL views.
 
 ## B. Gap table
 
-### B1. General industry limitations (context; not all are solved here)
-
-| Problem | Limitation of conventional approach | Proposed solution | Module | Evaluation metric |
-|---|---|---|---|---|
-| Vendor lock-in | Data and APIs tied to one provider | Adapter interface plus provider-neutral metadata | M5 | New adapter added without touching the services above it (count of files changed = 0) |
-| Provider price opacity | Pricing varies by tier, region and request type | Normalised pricing table, one cost formula | M3 | Same file costed on all providers by one query |
-| Real-world network variability | Latency depends on geography and time | Out of scope; modelled by simulation | M5 | Not evaluated (stated limitation) |
-| Compliance regimes (GDPR etc.) | Region and legal rules differ | Out of scope; a `region` attribute exists, no legal logic | M3 | Not evaluated |
-| Native provider tooling | Vendor consoles show only their own data | Cross-provider catalogue | M1, M10 | Single dashboard spans all providers |
-
-### B2. Gaps specific to this project's scope
-
-| # | Problem | Limitation of conventional approach | Proposed solution | Module | Evaluation metric |
+| Gap | Conventional approach | This project's solution | Module | Metric | Status |
 |---|---|---|---|---|---|
-| G1 | Fragmented metadata | Per-provider listings, spreadsheets | One relational schema (3NF, FKs, CHECKs) | M1 | 3NF analysis shows no partial or transitive dependencies; every FK enforced |
-| G2 | Slow metadata queries | Full scans on growing logs | Indexes on FK and filter columns, `EXPLAIN PLAN` before and after | M1 | Plan cost / access path improves on the 5 benchmark queries |
-| G3 | Cheapest-only or random placement | Single criterion, or none | Hard filters (security minimum, size fit, health) then weighted multi-criteria score over storage cost, transfer/request cost, latency, reliability, security | M4 | Placement differs for different file profiles and weight profiles (unit-tested) |
-| G4 | Opaque selection | No explanation stored | Persist per-criterion scores and a plain-language reason for every decision | M4 | 100% of uploads have a decision record with all criterion scores |
-| G5 | Weak access control | Shared credentials, no auditor role | JWT auth plus USER / ADMIN / AUDITOR RBAC, ownership checks | M2 | Authorisation matrix test: 0 unauthorised actions succeed |
-| G6 | Unclear audit trail | Provider logs scattered, mutable | Append-only audit and access logs in the DB | M9 | Every state-changing endpoint produces exactly one audit row |
-| G7 | Data exposure | Plaintext at rest | AES-256-GCM envelope encryption before the adapter | M6 | Provider bytes never equal plaintext; tamper test fails decryption |
-| G8 | Outage impact | Single copy; manual failover | Replica placement, health-driven failover read, repair job | M8 | Download succeeds with the primary marked down when a replica exists |
-| G9 | Duplicate waste | Not detected | SHA-256 content hash, grouped by hash | M11 | Seeded duplicates all found, 0 false positives |
-| G10 | Cold data on expensive storage | No visibility | Access-recency and frequency rules produce archive/migrate recommendations with estimated saving | M10, M11 | Each recommendation cites the data (days idle, access count, cost delta) |
-| G11 | Silent replication drift | Unknown copy state | Per-replica status and job history | M8 | Dashboard shows OK / PENDING / FAILED / STALE counts that match the DB |
-| G12 | Unverifiable claims | "Looks cheaper" with no basis | Assumptions file with every simulated number labelled | M3, M5 | Each simulated figure traceable to `assumptions.md` |
+| G1 fragmented metadata | per-provider listings | one relational schema: 17 tables in 3NF, 27 foreign keys, 60 CHECK constraints | M1 | 3NF analysis, every FK enforced | **BUILT** (`01-schema-audit.md`) |
+| G2 slow metadata queries | full scans on growing logs | indexes tied to named queries, EXPLAIN before/after | M1 | plan and buffer reads | **BUILT** (100,000-row run recorded; the 10,000-row run is yours to do) |
+| G3 cheapest-only or random placement | single criterion | hard filters then a weighted five-metric score | M4 | different profiles give different winners | **BUILT** (`03-selection-engine.md`) |
+| G4 opaque selection | no explanation stored | per-metric scores and an explanation stored for every upload | M4, M7 | decision and candidate rows exist | **BUILT** |
+| G5 weak access control | shared credentials, no auditor role | JWT, USER / ADMIN / AUDITOR permission table, ownership checks | M2 | authorisation matrix tests | **BUILT** |
+| G6 unclear audit trail | scattered, mutable logs | append-only `audit_events` (trigger-enforced) plus `access_logs` | M9 | one audit row per covered action | **BUILT** (requests with an invalid token are not audited) |
+| G7 data exposure | plaintext at rest | AES-256-GCM envelope encryption before storage | M6 | stored bytes never equal plaintext; tamper fails | **BUILT** (key management SIMULATED) |
+| G8 outage impact | single copy, manual failover | replica placement and failover read | M8 | download succeeds with primary down | **DESIGNED, NOT BUILT** |
+| G9 duplicate waste | not detected | SHA-256 grouping, wasted-bytes estimate | M11 | seeded duplicates found | **BUILT** (chunk 6: read-only report, exact duplicates within one owner; see `09-reports.md`) |
+| G10 cold data on dear storage | no visibility | idle-time rules and archive recommendations | M10, M11 | each recommendation cites evidence | **PARTLY BUILT** (cold files are listed with evidence as "candidate for archival review"; no recommendation, saving or payback) |
+| G11 silent replication drift | unknown copy state | per-replica status and job history | M8 | status counts match the database | **DESIGNED, NOT BUILT** (columns exist, nothing writes them except `OK`/`PENDING_DELETE` on upload/delete) |
+| G12 unverifiable claims | "looks cheaper" | simulated figures flagged `is_illustrative` and warned in every selection response | M3, M4 | flag present, warning shown | **PARTLY BUILT** (the planned `assumptions.md` was not written; see `06-limitations-and-objectives.md`) |
 
----
-
-## C. High-level architecture
+## C. Architecture (built, simulated and not built)
 
 ```mermaid
 flowchart TB
     subgraph Client
-        UI[Streamlit Dashboard<br/>pandas + Plotly]
+        UI["Streamlit dashboard<br/>(DESIGNED, NOT BUILT)"]
+        DOCS["OpenAPI page /docs and PowerShell<br/>(BUILT)"]
     end
-
-    subgraph Backend[FastAPI Backend]
+    subgraph Backend["FastAPI backend (BUILT)"]
         API[API routers / schemas]
-        AUTH[Auth + RBAC<br/>password hash, JWT]
-        FS[File Service<br/>upload, download, delete]
-        SEL[Selection Engine<br/>weighted scoring + explanation]
-        STG[Storage Abstraction<br/>StorageProvider interface]
-        ENC[Encryption Service<br/>AES-GCM envelope]
-        REP[Replication Service<br/>jobs, failover, repair]
-        MON[Monitoring + Optimization<br/>usage, cost, duplicates, cold files, recommendations]
-        AUD[Audit + Access Log Writer]
+        AUTH[Auth + RBAC]
+        FS[File service<br/>upload, download, delete]
+        SEL[Selection engine<br/>pure function]
+        REG[Provider registry]
+        STG[Storage interface]
+        ENC[Encryption service]
+        AUD[Audit + access log]
+        REP["Replication service<br/>(DESIGNED, NOT BUILT)"]
+        MON["Monitoring + optimisation<br/>(DESIGNED, NOT BUILT)"]
     end
-
-    subgraph Adapters[Provider Adapters - simulated]
-        A1[AWS-sim]
-        A2[Azure-sim]
-        A3[GCP-sim]
-        FSX[(Local object folders<br/>+ latency/failure injection)]
+    subgraph Providers["Provider adapters"]
+        SIMA["One SIMULATED adapter<br/>local folders per provider"]
+        REAL["Real AWS / Azure / GCP adapters<br/>(DESIGNED, NOT BUILT)"]
     end
+    DB[("Oracle metadata database (BUILT)<br/>17 tables, 8 views")]
 
-    DB[(Oracle Metadata DB<br/>users, providers, regions, pricing, files,<br/>replicas, encryption, decisions, logs, jobs, recs)]
-
-    UI -->|HTTPS + JWT| API
+    DOCS -->|HTTP + JWT| API
+    UI -.-> API
     API --> AUTH
     API --> FS
-    API --> MON
+    API --> REG
+    API --> SEL
     FS --> SEL
     FS --> ENC
     FS --> STG
-    FS --> REP
-    REP --> STG
-    STG --> A1 & A2 & A3
-    A1 & A2 & A3 --> FSX
+    STG --> SIMA
+    STG -.-> REAL
+    FS -.-> REP
+    REP -.-> STG
+    MON -.-> DB
     AUTH --> DB
     FS --> DB
     SEL --> DB
-    REP --> DB
-    MON --> DB
-    ENC --> DB
+    REG --> DB
     AUTH -.-> AUD
     FS -.-> AUD
-    REP -.-> AUD
     AUD --> DB
+
+    classDef notbuilt fill:#fde8e8,stroke:#c62828,stroke-dasharray:5 5,color:#000
+    classDef simulated fill:#fff6d6,stroke:#b8860b,color:#000
+    classDef built fill:#e6f4ea,stroke:#2e7d32,color:#000
+    class UI,REP,MON,REAL notbuilt
+    class SIMA simulated
+    class DOCS,API,AUTH,FS,SEL,REG,STG,ENC,AUD,DB built
 ```
+Dashed red boxes and dashed arrows are plans only. The yellow box is a stand-in for a cloud.
 
-Rules the diagram encodes:
-
-- The UI never touches the DB or providers; it only calls the API.
-- Only the File Service orchestrates; selection, encryption, storage and replication are separately testable.
-- Only adapters touch bytes at a provider. Only the DB layer runs SQL.
-- Encryption happens before bytes reach an adapter. Providers only ever see ciphertext.
-
----
+Rules the design enforces (all BUILT): clients never touch the database or providers; only the file service
+orchestrates; only adapters touch stored bytes; only the repository layer runs SQL; encryption happens before
+bytes reach an adapter, so a provider only ever receives ciphertext.
 
 ## D. Workflows
 
-### D1. Register / login
-1. `POST /auth/register` with username, email, password. The role defaults to USER; only an ADMIN can grant ADMIN or AUDITOR.
-2. Validate input; check username and email are unique.
-3. Hash the password (argon2id), insert the user, write an audit row `USER_REGISTERED`.
-4. `POST /auth/login` verifies the hash, issues a short-lived JWT (`sub`, `role`, `exp`), writes `LOGIN_OK` or `LOGIN_FAILED`.
-5. Repeated failures lock the account temporarily (counter and `locked_until` column).
-6. Every protected route runs a dependency that decodes the JWT, loads the user, checks active status, then checks the role.
+### D1. Register and login: **BUILT**
+Register creates a USER only (roles are never self-assigned); passwords are Argon2id hashed. Login returns a JWT
+(30 minutes). Every request re-reads the user's role and status from the database. Events `USER_REGISTERED`,
+`LOGIN_OK`, `LOGIN_FAILED`, `ACCESS_DENIED` are audited. Not built: lockout after repeated failures.
 
-### D2. Upload and D3. Provider selection
+### D2. Upload: **BUILT** (storage SIMULATED)
 ```mermaid
 sequenceDiagram
     participant U as User
@@ -134,287 +146,174 @@ sequenceDiagram
     participant FS as FileService
     participant SEL as SelectionEngine
     participant ENC as Encryption
-    participant STG as Storage
-    participant DB
-    U->>API: POST /files (file, security_level, weight_profile, replicas)
-    API->>FS: authenticated user + bytes
-    FS->>FS: SHA-256 of plaintext, size, content type
-    FS->>DB: duplicate check by owner + hash (warn)
-    FS->>SEL: select(file profile, weight profile)
-    SEL->>DB: providers, pricing, metrics, security capabilities
-    SEL->>SEL: filter hard constraints, normalise criteria, weighted score, rank
-    SEL->>DB: save decision + per-criterion scores + reason text
-    SEL-->>FS: ranked list (primary, replicas)
-    FS->>ENC: generate DEK, encrypt, wrap DEK with master key
-    ENC->>DB: store wrapped DEK (key id)
-    FS->>STG: put(primary, object_key, ciphertext)
-    STG-->>FS: ok / error
-    FS->>DB: file, encryption, replica, decision rows (COMMIT)
-    alt COMMIT fails
-        FS->>STG: delete(primary, object_key) (compensating action)
+    participant STG as Storage (simulated)
+    participant DB as Oracle
+    U->>API: POST /files (raw body, security_level, ...)
+    API->>API: authenticate, require file:write_own, read body within size limit
+    API->>FS: bytes
+    FS->>FS: validate name and size, SHA-256 of plaintext
+    FS->>DB: read providers, prices, probes, weights (read-only)
+    FS->>SEL: select(request, candidates, weights, policy)
+    SEL-->>FS: ranked list, scores, explanation (or "no provider qualifies")
+    FS->>ENC: new data key, AES-256-GCM, wrap the key
+    FS->>STG: put(object key, ciphertext)
+    alt put fails
+        FS-->>U: 503, nothing written to the database
+    end
+    FS->>DB: ONE transaction: file, encryption record, location, decision + candidates, access log, audit event
+    alt any database write fails
+        FS->>STG: delete(object key)  (compensating action)
+        FS-->>U: error
     end
     FS-->>U: file id, chosen provider, explanation
 ```
+Not built: a sweep for objects orphaned by a crash between `put` and `commit`.
 
-**Selection steps (D3 detail):**
-1. **Hard filters.** Drop providers that fail mandatory constraints (HIGH security requires a minimum security score from `system_config`; **size fit: file size must not exceed the provider's `max_object_bytes`**; provider-region currently DOWN or inactive).
-2. **Criterion values** per remaining provider for this file: monthly storage cost for its size, request cost, expected transfer cost (from expected access count), p50 latency, reliability (availability and durability score), security score.
-3. **Normalise** each of the five scored criteria (storage cost, transfer/request cost, latency, reliability, security) to 0..1 by min-max over the eligible candidates; cost and latency are inverted so higher is better. **Zero range rule:** if `max = min` for a criterion (all candidates equal, or only one candidate), every candidate gets 1.0 for that criterion. A constant added to every candidate cannot change the ranking, equal providers are not penalised, and the explanation states that the criterion did not discriminate. Size fit is *not* a scored criterion.
-4. **Weighted sum** using the active weight profile (stored in the DB; weights must sum to 1).
-5. **Rank and explain.** The top result is primary. Further ranks supply replica targets (different providers). The stored explanation names the top contributing criteria and the margin over the runner-up.
-6. **Deterministic tie-break** (reliability, then provider id). Never random.
+### D3. Provider selection: **BUILT** (see `03-selection-engine.md`)
+Hard filters (enabled, not DOWN, priced, latency measured, **size fits**, security and reliability minimums),
+cost for this file, min-max normalisation over eligible providers only (all-equal gives 1.0), direction, weighted
+sum with validated weights, deterministic tie-break (security, reliability, cost, provider id, region id).
 
-### D4. Download
-1. `GET /files/{id}`. Authorise: owner, ADMIN, or (metadata only) AUDITOR.
-2. Read replica rows ordered by preference, skipping any replica whose provider is DOWN or whose status is not OK.
-3. `get()` from the first healthy replica; on error, record the failure and try the next one.
-4. Unwrap the DEK, decrypt, verify the GCM tag and the SHA-256 against the stored hash.
-5. Write an access log row (user, file, provider used, latency, bytes, success) and return the stream.
+### D4. Download: **BUILT**
+Authorise and check ownership; fetch; verify the SHA-256 of the stored bytes; decrypt (GCM authenticates);
+verify the SHA-256 of the plaintext; write an access-log row with measured latency and outcome. Failure over to a
+second copy is **not built** (there is only one copy).
 
-### D5. Delete
-1. `DELETE /files/{id}`; only the owner or an ADMIN. AUDITOR is refused.
-2. Soft delete in a transaction: set status DELETED and the timestamp, mark replicas PENDING_DELETE, write an audit row.
-3. Delete the objects at each provider. Failed ones stay PENDING_DELETE and are retried by the repair job.
-4. When all replicas are gone, the key is destroyed (crypto-erase) and the metadata row is kept for audit.
+### D5. Delete: **BUILT**
+Needs `confirm=true`. One transaction: status DELETED, the encryption record removed (crypto-erase), location
+marked `PENDING_DELETE`, access log and audit event. Then the object is removed. If removal fails the key is
+still gone and the location stays `PENDING_DELETE` (no retry job).
 
-### D6. Replication
-```mermaid
-sequenceDiagram
-    participant FS as FileService
-    participant REP as Replication
-    participant DB
-    participant STG as Storage
-    FS->>REP: ensure_replicas(file_id, targets)
-    REP->>DB: create replication_job rows (PENDING)
-    loop each target
-        REP->>STG: get from healthy replica, put to target
-        alt success
-            REP->>DB: replica OK, job DONE
-        else failure
-            REP->>DB: attempts+1, job FAILED or RETRY
-        end
-    end
-    REP->>DB: file replication_status = FULL | PARTIAL | NONE
-```
+### D6. Replication: **DESIGNED, NOT BUILT**
+Plan: for each target, copy ciphertext from a healthy replica, write the replica row `OK`, or record the job
+`FAILED` and retry; the file's replication state is `FULL`, `PARTIAL` or `NONE`. Built so far: the tables
+(`replication_jobs`, `storage_locations.replica_status`, `files.desired_replicas`) and the view
+`v_file_replication_status`. Nothing creates replicas.
 
-### D7. Provider failure
-1. Health check records an event (`PROVIDER_DOWN`) and sets the provider health state. In the demo this is triggered manually via an admin endpoint or fault injection in the simulated adapter.
-2. The selection engine excludes DOWN providers for new uploads.
-3. Downloads fail over to the next healthy replica; each failover is logged.
-4. Files whose primary is DOWN are flagged DEGRADED; if replicas are missing, a repair job is queued.
-5. On `PROVIDER_UP`, the repair job re-copies missing or stale replicas and the status returns to FULL.
+### D7. Provider failure: **PARTLY BUILT**
+Built: a region marked `DOWN` is excluded from new selections, and the status change is audited. Not built:
+failover reads, degraded-file flags, or repair after recovery.
 
-### D8. Duplicate detection
-1. The SHA-256 is computed on plaintext at upload and stored on the file row (`files.content_sha256`).
-2. A scheduled or on-demand scan groups files by hash (`GROUP BY hash HAVING COUNT > 1`), within the same owner or across owners for ADMIN and AUDITOR views.
-3. Each group yields a wasted-bytes figure and a monthly waste estimate (extra copies multiplied by their storage price).
-4. A recommendation `DEDUPLICATE` is created, naming the keeper and the redundant copies. Nothing is deleted automatically.
+### D8. Duplicate detection: **BUILT (chunk 6)**
+`GET /reports/duplicates` groups a user's live files by plaintext SHA-256 and reports copies, wasted bytes and an
+estimated monthly waste from the (illustrative) price table. Exact duplicates only, within one owner; near-duplicates
+are not detected. Read-only. See `09-reports.md`.
 
-### D9. Migration / archival recommendation
-1. For each active file, compute days since last access, 30-day access count, current provider and class, and current monthly cost.
-2. If a cold-file rule is met (e.g. idle > N days and accesses < M), look up the cheapest suitable archive class that still satisfies the security level.
-3. Estimated saving = current monthly cost minus target monthly cost, minus the one-off migration cost (egress plus requests), giving a payback period.
-4. Store the recommendation with its evidence (idle days, counts, both cost figures, the assumptions used). It is recommended only if the saving is positive and the payback is under a threshold.
-5. An admin reviews it. Approving can trigger the migration through replication (copy, verify, switch primary, delete old).
+### D9. Cold files and migration recommendation: **PARTLY BUILT**
+Built (chunk 6): `GET /reports/cold-files` lists files idle for more than a threshold with few recent downloads, with
+evidence and the label "candidate for archival review". **Not built:** pricing a cheaper tier, recommendations, saving,
+payback, approval, and any migration. The `recommendations` table is unused.
 
----
+## E. Module output matrix
 
-## E. Module output matrix (12 modules)
+| # | Module | Inputs | Processing | Independent output | DB tables | Status and evidence |
+|---|---|---|---|---|---|---|
+| M1 | Database and schema | DDL, seed data | 3NF design, constraints, indexes, views, migration | created schema, row counts, constraint errors, EXPLAIN plans | all 17 | **BUILT**; `install_fresh.log`, `demo_*.log`, `explain_100k.log` |
+| M2 | Auth and RBAC | credentials, JWT | Argon2, token issue and check, permission table | tokens, 401/403 responses | `users` | **BUILT**; `test_api_auth`, `test_api_rbac`, `test_rbac_table` |
+| M3 | Provider registry | provider, region, tier prices | admin CRUD, audit | provider catalogue | `cloud_providers`, `provider_regions`, `provider_pricing`, `performance_measurements` | **BUILT**; `test_api_providers`, `test_oracle_providers` |
+| M4 | Selection engine | file profile, candidates, weights | filters, cost, normalise, score, rank, explain | ranked list, scores, explanation | `weight_profiles`, `system_config` (read); decisions are written by M7 | **BUILT**; `test_selection_*`, worked example |
+| M5 | Storage and adapters | object key, bytes | local-folder put/get/delete/exists | stored objects | none | **BUILT, SIMULATED**; `test_crypto.py` (adapter tests) |
+| M6 | Encryption | plaintext, master key | AES-256-GCM, key wrap | ciphertext, wrapped key, nonce | `file_encryption` | **BUILT**; `test_crypto.py` |
+| M7 | File service | upload/download/delete requests | orchestration, compensating delete | file records, locations, decisions | `files`, `file_encryption`, `storage_locations`, `selection_decisions`, `selection_candidates` | **BUILT**; `test_files_api`, `test_oracle_files` |
+| M8 | Replication and recovery | file id, targets | copy, retry, repair | replica status, job history | `replication_jobs`, `storage_locations` | **DESIGNED, NOT BUILT** |
+| M9 | Audit and access log | events from all services | append-only inserts | audit and access history | `audit_events`, `access_logs` | **BUILT** |
+| M10 | Monitoring | logs, files, prices | aggregations | KPI tables, dashboard data | views only | **DESIGNED, NOT BUILT** |
+| M11 | Duplicates and optimisation | hashes, access stats, prices | grouping, cold-file rules | findings (read-only) | `files`, `access_logs`, `storage_locations`, `provider_pricing` | **PARTLY BUILT** (reports built in chunk 6; savings, recommendations and the `recommendations` table are not used) |
+| M12 | API and dashboard | HTTP requests | FastAPI routes; Streamlit pages (planned) | OpenAPI page works; dashboard and scripted demo do not exist | none | **PARTLY BUILT** |
 
-| # | Module | Inputs | Processing | Outputs | Dependencies | DB tables | Independent output | Integrated output |
-|---|---|---|---|---|---|---|---|---|
-| M1 | Database & schema | DDL scripts, seed data | 3NF design, constraints, indexes, views, migrations, transaction demos | Created schema, seeded data, view results, `EXPLAIN PLAN` comparisons | Oracle | All | SQL runs on a clean schema; constraint-violation tests; plan comparison | Foundation for all modules |
-| M2 | Auth & RBAC | Credentials, JWT, role | Hash and verify, token issue and decode, role and ownership checks, lockout | Tokens, `current_user`, 401/403 responses | M1 | `users`, `roles` | Register, login and authorisation-matrix tests via API | Guards every router |
-| M3 | Provider registry & pricing | Provider, class, price and metric data | CRUD, price normalisation, cost calculator (storage + request + egress), metric aggregation | Provider catalogue, `cost_for(file, provider, class)` | M1, M2 | `cloud_providers`, `storage_classes`, `pricing`, `provider_metrics`, `provider_security_features` | Comparison table; cost calculator unit tests | Feeds M4, M10, M11 |
-| M4 | Selection engine | File profile, weight profile, provider data | Hard filters, normalise, weighted sum, rank, explain | Ranked providers, scores, reason text | M3 (data only) | `weight_profiles`, `selection_decisions`, `selection_candidates` | Pure-function tests with fixed data; no storage needed | Called by upload (M7) |
-| M5 | Storage abstraction & adapters | Object key, bytes, provider id | `StorageProvider` interface; simulated adapters (folder-backed, latency model, fault injection) | `put/get/delete/exists/stat` results, measured latency | None (no DB needed) | none (health state in `cloud_providers`) | Adapter contract tests on each simulated provider | Used by M7, M8 |
-| M6 | Encryption service | Plaintext, master key | AES-256-GCM, per-file DEK, DEK wrapping, integrity hash | Ciphertext, wrapped key record, decrypted bytes | M1 (key table), `cryptography` | `encryption_keys` | Round-trip, tamper and wrong-key tests | Wraps every upload and download |
-| M7 | File & metadata service | Upload and download requests | Orchestrates M4, M6, M5, M8 and the DB in one transaction, with a compensating delete of the stored object if the commit fails; soft delete | File records, replica rows | M2, M4, M5, M6 | `files`, `file_encryption`, `storage_locations` | Upload, download and delete via API with simulated providers | The core flow |
-| M8 | Replication & recovery | File id, targets, provider health | Jobs, retries, failover read, repair after recovery | Replica status, job history | M5, M7 | `replication_jobs`, `provider_events` | Fault-injection tests: down, partial, repair | Called by M7 and the repair job |
-| M9 | Audit & access logging | Events from all services | Append-only inserts, structured details | Audit and access history, filterable views | M1, M2 | `audit_log`, `access_logs` | Writer tests; AUDITOR read-only access | Cross-cutting |
-| M10 | Monitoring & analytics | Logs, files, pricing, metrics | Aggregation queries and views: usage, access frequency, cost estimate, latency, replication status | KPI dataframes, time series | M1, M3, M9 | Views over existing tables | KPI SQL tested against seeded data | Dashboard data source |
-| M11 | Duplicate detection & optimization | Hashes, access stats, cost model | Hash grouping, cold-file rules, migration-saving calculation | Duplicate groups, `recommendations` with evidence | M3, M10 | `recommendations`, `duplicate_scan_runs` | Run against seeded data and check expected output | Shown in dashboard; approval triggers M8 |
-| M12 | API & dashboard | HTTP requests, JWT | FastAPI routers and OpenAPI docs; Streamlit pages with pandas and Plotly | Documented endpoints, charts and tables, demo | All | none | Swagger docs and API tests; dashboard with mocked data | End-to-end demo |
+## F. Technology stack
 
----
-
-## F. Technology stack and trade-offs
-
-| Choice | Why | Trade-off / alternative |
+| Choice | Used? | Trade-off and note |
 |---|---|---|
-| **FastAPI** | Typed request models, automatic OpenAPI docs (satisfies the API-docs chunk), dependency injection for auth, easy `TestClient` testing | Async features are barely used (`oracledb` calls are blocking); run sync endpoints in the threadpool. Flask would work but gives no schema docs for free |
-| **`oracledb` (thin mode)** | Official driver, no Oracle Client install, connection pooling, bind variables | Oracle-only; smaller community than psycopg |
-| **Parameterised SQL (hand-written) instead of SQLAlchemy** | The project is graded on DB concepts. Hand-written joins, views, `EXPLAIN PLAN`, `SAVEPOINT` and index design stay visible and exact; bind variables prevent SQL injection; no ORM-generated SQL to explain | More boilerplate and no automatic migrations; mitigated by a small repository layer with one function per query, and numbered SQL migration files. SQLAlchemy Core would lower boilerplate but hides the SQL and Oracle-specific behaviour (identity columns, `FETCH FIRST`), and adds a dependency without helping the learning objectives |
-| **Streamlit** | Fast to build a data dashboard, native pandas/Plotly support | No fine-grained session security; the dashboard is a client of the API only and stores the JWT in session state. A React front end would be heavier for no grading benefit |
-| **pandas** | Aggregation and tabular transforms for KPIs and recommendations | Not for heavy work; SQL does the aggregation first |
-| **Plotly** | Interactive charts, works in Streamlit | Larger payload than matplotlib |
-| **`cryptography`** | Audited, AES-GCM and Fernet primitives | Must be used correctly (nonce handling, key wrapping); wrapped in one small module |
-| **Password hashing: argon2-cffi (argon2id)** | Memory-hard, current recommendation | bcrypt is the fallback if wheels are unavailable; never SHA or MD5 |
-| **JWT: PyJWT, HS256, short expiry** | Stateless and simple, easy RBAC claims | No server-side revocation by default; mitigated by short expiry plus an active-user check and a `token_version` column if needed |
-| **pytest** | Fixtures for DB and adapters, parametrised authorisation matrix | Needs a test schema or a transaction rollback per test |
-| **Ruff** | One tool for lint and format, fast | Style only; does not replace type checks (optional `mypy` later) |
-| **Docker for Oracle** | Reproducible local DB | Large image; the user may already have Oracle XE (see questions) |
+| FastAPI (with Pydantic) | **yes** | typed request models and an automatic OpenAPI page; the Oracle driver blocks, so routes run in a thread pool |
+| `oracledb`, thin mode | **yes** | no Oracle client install; Oracle only |
+| Hand-written parameterised SQL (not SQLAlchemy) | **yes** | the database work stays visible and exact; more boilerplate; an automated scan checks that every `execute` receives a constant SQL string |
+| `argon2-cffi` (Argon2id) | **yes** | memory-hard hashing |
+| `PyJWT` (HS256, 30 minutes) | **yes** | stateless; no server-side revocation |
+| `cryptography` | **yes** | AES-256-GCM; key management is simulated |
+| `python-dotenv`, `uvicorn` | **yes** | `.env` loading; the server |
+| `pytest`, `pytest-cov`, `httpx`, `ruff` | **yes** | tests, coverage, lint and format |
+| Streamlit, pandas, Plotly | **no** | planned for the dashboard; listed (commented out) in `requirements-optional.txt`, not installed or used |
+| Docker, CI pipeline, mypy | **no** | not part of the project |
 
-### Simulated vs possibly real
+Simulated versus real: the metadata, auth, RBAC, audit, selection logic, encryption algorithm and replication
+*schema* are real. Providers, prices, latency probes, the size caps, the master key (stands in for a KMS) and
+storage itself are simulated. See `06-limitations-and-objectives.md`.
 
-| Area | In this project (implemented) | Simulated | Needs real cloud configuration |
-|---|---|---|---|
-| Metadata, schema, SQL | Fully real (Oracle) | none | none |
-| Auth, RBAC, audit | Fully real | none | Federation with a real IdP (SSO) |
-| Selection engine | Real algorithm over stored data | Provider prices, latency and reliability figures are assumed values in the seed data | Live pricing APIs and real measured latency |
-| Storage | Interface and adapter contract | Folder-backed "buckets" with injected latency, failures, size limits | Real S3 / Blob / GCS adapters (`boto3`, `azure-storage-blob`, `google-cloud-storage`), credentials, buckets, regions |
-| Encryption at rest | Real AES-256-GCM, envelope keys | Master key from an environment variable (stands in for KMS) | AWS KMS / Azure Key Vault / Cloud KMS, key rotation, HSM |
-| Encryption in transit | Optional TLS on uvicorn with a self-signed cert | Local TLS only | Managed certificates, TLS enforced at provider endpoints, private networking |
-| Replication & failure | Real job logic and state machine | Outages produced by fault injection | Provider-native replication, health probes, DNS failover |
-| Cost model | Real formulas | Illustrative price points, flagged in `assumptions.md` | Billing exports from each provider |
-| Durability/availability SLAs | Stored as numbers | Illustrative | Contractual SLAs |
+## G. Requirements and their status
 
----
-
-## G. Requirements
-
-### Functional
-- **FR-1** Register and log in; passwords stored only as hashes; JWT with expiry.
-- **FR-2** Roles USER, ADMIN and AUDITOR. USER manages own files. ADMIN manages users, providers, weights and recommendations. AUDITOR has read-only access to metadata, audit and access logs, and cannot download content or change anything.
-- **FR-3** Maintain providers, storage classes, pricing and metrics (ADMIN).
-- **FR-4** Upload a file with security level, access expectation and weight profile; the system selects a provider and returns the explanation.
-- **FR-5** The selection uses configurable weights (storage cost, transfer/request cost, latency, reliability, security; weights sum to 1), enforces hard constraints (security minimum, size fit, health), is deterministic, and stores per-criterion scores.
-- **FR-6** Download with decryption and integrity verification; failover to a replica.
-- **FR-7** Soft delete with key destruction. File versioning is out of scope (a replacement is a new file).
-- **FR-8** Optional replication to N further providers; per-replica status; repair.
-- **FR-9** Encrypt all content before it leaves the service.
-- **FR-10** Log every authentication event, state change and file access.
-- **FR-11** Duplicate detection by SHA-256.
-- **FR-12** Cold-file detection and archive/migration recommendations with evidence.
-- **FR-13** Dashboard: usage, access frequency, estimated cost, provider latency, replication status, recommendations.
-- **FR-14** Documented API (OpenAPI) and a scripted end-to-end demo.
-- **FR-15** Rollback support: explicit transactions and savepoints for multi-step operations; failed uploads leave no orphan metadata.
-
-### Non-functional
-- **NFR-1 Data integrity:** schema in at least 3NF, with PK, FK, UNIQUE, NOT NULL and CHECK constraints.
-- **NFR-2 Security:** parameterised SQL only; no secrets in the repo (`.env`, example file committed); constant-time hash comparison; lockout; input validation; least privilege per role.
-- **NFR-3 Performance:** indexes on FK and filter columns; common queries show an improved plan; paginated lists.
-- **NFR-4 Reliability:** upload is atomic with respect to metadata; recoverable after partial failure.
-- **NFR-5 Explainability:** every placement and recommendation is reproducible from stored inputs.
-- **NFR-6 Testability:** every module has tests runnable without the others (fakes or seeded data); target coverage stated in chunk 8.
-- **NFR-7 Maintainability:** layered modules, Ruff-clean, typed signatures.
-- **NFR-8 Portability:** a single `.env`-driven config; runs on Windows.
-- **NFR-9 Honesty:** simulated figures documented and visibly labelled in the UI.
-- **NFR-10 Scale:** designed for demo scale (thousands of files); no claim beyond that.
-
----
-
-## H. Folder structure
-
-```
-dbmsproject/
-├─ README.md                    Setup, run, demo steps
-├─ pyproject.toml               Dependencies, Ruff and pytest config
-├─ .env.example                 DB DSN, JWT secret, master key placeholders (no real secrets)
-├─ docs/
-│  ├─ 00-design.md              This document
-│  ├─ assumptions.md            Every simulated number and its justification
-│  ├─ 3nf-analysis.md           Chunk 1 normalisation report
-│  ├─ api.md                    Chunk 7 endpoint reference
-│  └─ test-report.md            Chunk 8
-├─ sql/
-│  ├─ 000_legacy_schema.sql     Original schema.sql, kept for reference
-│  ├─ 010_schema.sql            Revised 3NF tables, constraints
-│  ├─ 020_indexes.sql           Indexes
-│  ├─ 030_views.sql             Reporting and monitoring views
-│  ├─ 040_seed.sql              Providers, pricing, demo users
-│  ├─ 050_migrate_legacy.sql    Data migration from the old schema
-│  └─ 090_explain_plans.sql     Before/after plan demos
-├─ app/
-│  ├─ main.py                   FastAPI app creation, router registration
-│  ├─ config.py                 Settings loaded from the environment
-│  ├─ db/
-│  │  ├─ pool.py                oracledb pool, transaction context manager
-│  │  └─ repositories/          One file per aggregate: users.py, providers.py, files.py, logs.py, ...
-│  ├─ auth/
-│  │  ├─ passwords.py           Hash and verify
-│  │  ├─ tokens.py              JWT issue and decode
-│  │  └─ deps.py                `current_user`, `require_role`
-│  ├─ providers/
-│  │  ├─ service.py             Registry and cost calculator
-│  │  └─ pricing.py             Normalisation helpers
-│  ├─ selection/
-│  │  ├─ criteria.py            Criterion definitions and normalisation
-│  │  ├─ engine.py              Filters, scoring, ranking
-│  │  └─ explain.py             Reason text generation
-│  ├─ storage/
-│  │  ├─ base.py                `StorageProvider` abstract interface
-│  │  ├─ simulated.py           Folder-backed adapter, latency and fault injection
-│  │  └─ registry.py            Provider id → adapter instance
-│  ├─ crypto/
-│  │  └─ service.py             AES-GCM, DEK wrapping, hashing
-│  ├─ files/
-│  │  └─ service.py             Upload, download, delete orchestration
-│  ├─ replication/
-│  │  └─ service.py             Jobs, failover, repair
-│  ├─ audit/
-│  │  └─ service.py             Audit and access log writers
-│  ├─ monitoring/
-│  │  ├─ metrics.py             KPI queries
-│  │  ├─ duplicates.py          Hash grouping
-│  │  └─ recommendations.py     Cold-file and migration rules
-│  └─ api/
-│     ├─ schemas.py             Pydantic models
-│     └─ routers/               auth.py, users.py, providers.py, files.py, monitoring.py, admin.py
-├─ dashboard/
-│  ├─ app.py                    Streamlit entry
-│  ├─ client.py                 API client wrapper
-│  └─ pages/                    Overview, Files, Providers, Costs, Recommendations, Audit
-├─ scripts/
-│  ├─ init_db.py                Run SQL files in order
-│  ├─ seed_demo.py              Create demo data and sample uploads
-│  └─ demo.py                   Scripted end-to-end scenario
-├─ storage_sim/                 Local folders acting as buckets (git-ignored)
-└─ tests/
-   ├─ conftest.py               DB and adapter fixtures
-   ├─ unit/                     selection, crypto, cost, rules
-   ├─ integration/              repositories, services with simulated storage
-   └─ api/                      authorisation matrix, end-to-end flows
-```
-
----
-
-## I. Milestone plan
-
-| Chunk | Delivers | Verification criterion |
+| Req | Statement | Status |
 |---|---|---|
-| 0 | This design | You approve the design and answer the open questions below |
-| 1 (core) | Schema audit, 3NF analysis, revised Oracle schema, migration, indexes, views, transaction demos | Scripts run on a clean Oracle schema without error; each constraint has a violating insert that is rejected; the migrated legacy rows match the old counts; `EXPLAIN PLAN` shows an improved access path for the benchmark queries; the 3NF document lists every dependency checked |
-| 2 (core) | Skeleton, config, DB layer, auth and RBAC, audit writer | `pytest` passes the authorisation matrix (every role × endpoint); passwords are not stored in plaintext; a locked account is refused; every auth event has an audit row; Ruff is clean |
-| 3 (core) | Provider registry, pricing, selection engine | With fixed seed data, a small cheap file, a large confidential file and a latency-sensitive file produce different, expected providers; weights changed in the DB change the ranking; an explanation is stored; the DOWN provider is excluded; same input gives the same output |
-| 4 (core) | Storage abstraction, simulated adapters, encryption, upload and download | An upload then a download returns identical bytes; stored provider bytes differ from plaintext; a flipped ciphertext byte fails verification; a forced adapter error leaves no orphan metadata rows; a forced DB commit failure leaves no orphan object at the adapter (compensating delete) |
-| 5 (stretch) | Replication, failure handling, recovery | With the primary marked down the download still succeeds from a replica; after recovery the repair job restores FULL status; job and event history is recorded |
-| 6 (stretch) | Monitoring, duplicates, recommendations | Seeded duplicates are all found; seeded cold files are flagged; each recommendation shows its evidence and cost figures that match a hand calculation |
-| 7 (stretch) | API docs, dashboard, end-to-end demo | `scripts/demo.py` runs login → upload → select → replicate → fail a provider → download → recommend with no manual steps; the dashboard figures equal direct SQL results; OpenAPI lists every endpoint |
-| 8 (stretch) | Test report, evaluation, limitations, final report outline | Full test run is green with the coverage figure reported; each of the 4 objectives is mapped to evidence; limitations list names every simulated element |
+| FR-1 | register and log in; hashed passwords; JWT with expiry | **Met** |
+| FR-2 | roles USER, ADMIN, AUDITOR; AUDITOR read-only | **Met** (ADMIN has no own-file permissions; documented) |
+| FR-3 | maintain providers, tiers, prices, metrics | **Partly met**: providers, regions, scores, health and prices via the API; latency probes only by SQL or seed |
+| FR-4 | upload returns the chosen provider and explanation | **Met** |
+| FR-5 | weighted, configurable, deterministic selection with hard constraints and stored scores | **Met** |
+| FR-6 | download with decryption, integrity check and failover | **Partly met**: decryption and integrity yes, failover no |
+| FR-7 | soft delete with key destruction | **Met** (file versions dropped from scope) |
+| FR-8 | optional replication and per-replica status | **Not built** |
+| FR-9 | encrypt before data leaves the service | **Met** |
+| FR-10 | log authentication events, state changes and file access | **Met**, except requests with an invalid token are not audited |
+| FR-11 | duplicate detection | **Met** (chunk 6, read-only report) |
+| FR-12 | cold-file detection and recommendations | **Partly met**: detection yes (chunk 6), recommendations no |
+| FR-13 | dashboard | **Not built** |
+| FR-14 | documented API and a scripted demo | **Partly met**: OpenAPI page yes, scripted demo no |
+| FR-15 | transactions, savepoints, no orphan metadata | **Met** |
+| NFR-1 | integrity: 3NF, PK/FK/UNIQUE/NOT NULL/CHECK | **Met** |
+| NFR-2 | security: bound SQL, no secrets in the repository, least privilege | **Met**; not built: lockout, rate limiting, TLS |
+| NFR-3 | performance: indexes, improved plans | **Met** (100,000-row run recorded; 10,000-row run pending) |
+| NFR-4 | reliability: atomic upload, recoverable after partial failure | **Partly met**: atomic with compensation; no orphan sweep |
+| NFR-5 | explainability: every placement reproducible from stored inputs | **Met** |
+| NFR-6 | testability without the other modules | **Met** |
+| NFR-7 | maintainability: layered, lint-clean | **Met** |
+| NFR-8 | portability: one `.env`, runs on Windows | **Met** |
+| NFR-9 | honesty: simulated values labelled | **Met** (flag in the database, warnings in responses) |
+| NFR-10 | demo scale only | **Met** (tested with 100,010 log rows) |
 
----
+## H. Folder structure (as built)
 
-## Amendments after chunk 0 review (supersede earlier text where they conflict)
+```
+app/
+  main.py                      application factory and error handlers
+  config.py                    settings from environment variables only
+  db/                          base.py (interfaces), pool.py (pool and transaction helper), errors.py,
+                               repositories/ (users, audit, providers, files: all SQL, bind variables only)
+  auth/                        passwords.py, tokens.py, rbac.py (permission table), service.py, deps.py
+  audit/service.py             audit events
+  providers/                   module 3: registry service and row types
+  selection/                   module 4: engine.py (pure), models, presets, explain, baselines, example, serialize, service
+  crypto/service.py            AES-256-GCM envelope encryption
+  storage/                     base.py (interface), simulated.py (the one adapter)
+  files/                       upload, download, delete service; errors; row types
+  api/                         schemas*.py, routers/ (auth, health, protected, providers, selection, files)
+scripts/                       set_password.py, worked_example.py, make_review_package.py
+sql/                           schema, indexes, views, seeds, migration, demos, synthetic data, cleanup
+docs/                          design, audit, data dictionary, run guide, engine, storage, test report, limitations, outline
+tests/unit/                    370 tests with an in-memory database and a real simulated adapter
+tests/integration/             40 tests against Oracle (you run them)
+requirements*.txt, pyproject.toml, .env.example, README.md
+```
 
-1. **Chunk 1 includes synthetic data.** `sql/synthetic_data.sql` generates 10,000 and 100,000 `access_logs` rows (plus 100 users and 5,000 files) so `EXPLAIN PLAN` comparisons are meaningful.
-2. **Upload compensating action.** Order is: hash, select, encrypt, `put` to the provider, then DB `COMMIT`. If the commit (or any DB step) fails after the object was stored, the service must `delete` that object before returning the error and must log `FAILURE`. If the process dies between `put` and `commit`, compensation cannot run, so chunk 4 also provides an orphan sweep: list objects under the managed prefix with no matching `storage_locations` row older than a grace period, then delete them. Chunk 4 verification: force `COMMIT` to fail (test hook) and assert the object no longer exists at the adapter and no metadata rows remain.
-3. **Size fit is a hard filter, not a scored criterion.** A provider whose `max_object_bytes` is below the file size is excluded with a recorded reason. The five scored criteria are storage cost, transfer/request cost, latency, reliability, security.
-4. **Min-max normalisation when the range is zero.** If `max = min` for a criterion over the eligible candidates, every candidate scores 1.0 on it. Rationale in section D3 step 3. Unit tests: all-equal, single candidate, and two candidates.
-5. **Limitation L-1: plaintext hashes reveal file existence.** `files.content_sha256` is the SHA-256 of the *plaintext*. Anyone who can read that column (a DBA, an AUDITOR with table access, a SQL injection) can test whether a specific known file is stored, and equal hashes reveal that two files are identical even across owners. Low-entropy files can also be guessed offline. Mitigations in this project: duplicate detection results are scoped to the owner for the USER role; the column is not returned by default in API responses. Hardening not implemented: use `HMAC-SHA256` with a server-side secret (keeps within-system dedupe, defeats outside confirmation), at the cost of losing comparability with externally computed hashes. Report this in chunk 8.
-6. **Priority.** Chunks 1 to 4 are **core**; chunks 5 to 8 are **stretch if time runs short**. Fallbacks if only the core is finished: replication stays a documented design with the schema already in place (objective 3 calls it optional); duplicate detection (`v_duplicate_files`) and cold-file queries (`v_file_access_stats`) are already SQL views from chunk 1 and can be shown from SQL without chunk 6 code; the chunk 8 report is still needed, so keep a thin version of it.
-7. **Scope reductions and additions decided in chunk 1** (see `01-schema-audit.md`): `file_versions` removed; `provider_events` removed (health lives on `provider_regions`, history in `audit_events`); `selection_decisions` and `selection_candidates` added; weights live in `weight_profiles` (DB enforces they sum to 1) rather than `system_config`; SQL file names are those in `sql/` (not the numbered names in section H).
+## I. Milestones and their status
 
-## Decisions confirmed (chunk 0 close)
+| Chunk | Delivered | Status |
+|---|---|---|
+| 0 | this design | **Done** (refreshed here) |
+| 1 | schema audit, revised schema, migration, demos, EXPLAIN | **Done**; optional runs not yet done: 10,000-row EXPLAIN, legacy migration |
+| 2 | auth, RBAC, audit, health | **Done** |
+| 3 | provider registry, selection engine | **Done** |
+| 4 | simulated storage, encryption, upload, download, delete | **Done** |
+| 5 | replication and failover | **Not built** |
+| 6 | duplicate and cold-file reports | **Built** (`09-reports.md`) |
+| 7 | demo script and dashboard | **Not built** |
+| 8 | test report, limitations, objective map, outline | **This documentation set** (results tables left for you to fill) |
 
-- Oracle: default chosen, Oracle Free/XE 21c+ (12c+ syntax). Docker is not installed on this machine, so chunk 1 will either use a native Oracle XE/Free install or you tell me an existing instance.
-- `schema.sql` is the team's own and may be restructured freely.
-- Python 3.12.10 (the version installed here).
+## J. Decisions that differ from the Chunk 0 design
 
-## Open questions (resolved above, kept for history)
-
-1. **Oracle target.** What will you run it on: local Oracle XE (version?), Docker `gvenzl/oracle-free`, or a university/shared instance? Default if you don't say: Oracle Free/XE 21c+ via Docker, using 12c+ syntax (identity columns, `FETCH FIRST`).
-2. **Existing `schema.sql`.** Is it yours (or a teammate's) and may it be restructured freely? I only saw a summary and will read the whole file in chunk 1. Default: treat it as a draft and migrate its seed rows.
-3. **Python version.** Default: 3.11+ on Windows.
-
-If you don't answer, I proceed with the defaults above.
+* **File versions dropped**: a replacement is a new file. **`provider_events` dropped**: health lives on `provider_regions`, history in `audit_events`.
+* **Selection results are stored** (`selection_decisions`, `selection_candidates`) and **weights live in `weight_profiles`** so the database enforces that they sum to 1.
+* **One managed bucket per provider-region** (so "same file, same provider and region" is a plain UNIQUE constraint).
+* **Size fit is a hard filter**, not a scored criterion. **All-equal metrics score 1.0** (no division by zero).
+* **Upload uses a compensating delete**; the promised orphan sweep was not built.
+* **Plaintext hashes reveal file existence** (limitation L-1): `content_sha256` is a hash of the plaintext.
+* **File upload takes the raw body** (no multipart library); the dashboard dependencies were never installed.

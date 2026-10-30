@@ -13,6 +13,7 @@ from app.auth.service import ACTIVE
 from app.auth.tokens import TokenError, TokenExpiredError, decode_access_token
 from app.config import Settings
 from app.db.base import Database, UserRecord
+from app.reports.service import ReportScope
 
 _bearer = HTTPBearer(auto_error=False, description="Paste the access_token from POST /auth/login")
 _UNAUTHENTICATED = {"WWW-Authenticate": "Bearer"}
@@ -95,6 +96,21 @@ def require_permission(permission: Permission) -> Callable[..., UserRecord]:
         return user
 
     return dependency
+
+
+def report_scope(
+    request: Request,
+    user: UserRecord = Depends(current_user),
+    database: Database = Depends(get_database),
+) -> ReportScope:
+    """Whose files a report may cover: ADMIN and AUDITOR (REPORT_READ) see every owner's files,
+    a USER (FILE_READ_OWN) sees only their own. Any other role is refused and the refusal logged."""
+    if has_permission(user.role, Permission.REPORT_READ):
+        return ReportScope(owner_id=None)
+    if has_permission(user.role, Permission.FILE_READ_OWN):
+        return ReportScope(owner_id=user.user_id)
+    _deny(request, database, user, Permission.REPORT_READ.value)
+    raise AssertionError("unreachable: _deny always raises")  # pragma: no cover
 
 
 def require_role(*roles: Role) -> Callable[..., UserRecord]:
