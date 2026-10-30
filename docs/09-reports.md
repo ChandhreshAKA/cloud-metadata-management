@@ -117,7 +117,8 @@ Optional: `@sql/seed_reports_config.sql` adds `cold.max_accesses` and `cold.wind
 
 ## 6. Results of my verification run (real Oracle 26ai Free, real code)
 
-These came from commands I ran while building this chunk. **Re-run them yourself for your own report.**
+These came from commands I ran while building this chunk, **at the time of the chunk 6 commit**; later chunks added tests, so
+current totals differ. **Re-run them yourself for your own report** and fill `05-test-report.md` (T9 to T11).
 
 | Check | Result |
 |---|---|

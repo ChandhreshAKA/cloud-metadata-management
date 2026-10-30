@@ -1,4 +1,4 @@
-# System design (refreshed after Chunk 4)
+# System design (refreshed after Chunk 7)
 
 This document was first written in Chunk 0 (before any code) and has been **refreshed to say what
 actually exists**. Every part of the design carries one of these labels:
@@ -12,7 +12,7 @@ actually exists**. Every part of the design carries one of these labels:
 
 Companion documents: `01-schema-audit.md` and `01-data-dictionary.md` (database), `03-selection-engine.md`,
 `04-storage-encryption.md`, `05-test-report.md` (results tables), `06-limitations-and-objectives.md`,
-`07-report-outline-and-demo.md`.
+`07-report-outline-and-demo.md`, `08-demo-runbook.md` (manual demo commands), `09-reports.md` (duplicate and cold-file reports).
 
 ## Status at a glance
 
@@ -27,8 +27,8 @@ Companion documents: `01-schema-audit.md` and `01-data-dictionary.md` (database)
 | M7 | File and metadata service (upload, download, delete) | **BUILT** |
 | M8 | Replication and recovery | **DESIGNED, NOT BUILT** (schema columns and a view exist; no code) |
 | M9 | Audit and access logging | **BUILT** |
-| M10 | Monitoring and analytics | **DESIGNED, NOT BUILT** (SQL views exist; no module, report or dashboard) |
-| M11 | Duplicate detection and optimisation | **DESIGNED, NOT BUILT** (one SQL view exists; no module, no recommendations) |
+| M10 | Monitoring and analytics | **DESIGNED, NOT BUILT** (SQL views exist; no monitoring module, no usage, cost or performance reports, no charts) |
+| M11 | Duplicate detection and optimisation | **PARTLY BUILT** (chunk 6: read-only duplicate-file and cold-file reports; **not built:** recommendations, savings, payback, migration) |
 | M12 | API and dashboard | **BUILT** (small): the API and its OpenAPI page, the scripted demo `scripts/demo.py`, and one optional Streamlit page `dashboard.py`; **monitoring pages and charts are DESIGNED, NOT BUILT** |
 
 ---
@@ -49,9 +49,10 @@ Organisations that store files across several cloud providers (AWS S3, Azure Blo
 **Goal.** A centralised, normalised (3NF) Oracle metadata system with an explainable, configurable
 weighted-selection engine, role-based secure storage, and (planned) replication and monitoring.
 
-**Scope actually delivered:** problems 1, 2, 3 and 5 are addressed, and the security part of 7's cousin (data
-exposure) is addressed by encryption. **Problems 4, 6 and 7 are only designed:** no monitoring, no replication or
-failover, and no duplicate or waste reporting exist beyond the underlying SQL views.
+**Scope actually delivered:** problems 1, 2, 3 and 5 are addressed, and data exposure is addressed by encryption.
+**Problems 4 and 7 are partly addressed:** duplicate and cold files are now *identified* by read-only reports (exact
+duplicates within one owner; cold files as candidates for review), but nothing recommends, prices or performs a move, and
+there are no usage, cost or performance reports or charts. **Problem 6 (outages) is only designed:** no replication or failover.
 
 ## B. Gap table
 
@@ -87,6 +88,7 @@ flowchart TB
         STG[Storage interface]
         ENC[Encryption service]
         AUD[Audit + access log]
+        RPT["Report service<br/>duplicates, cold files (read-only)"]
         REP["Replication service<br/>(DESIGNED, NOT BUILT)"]
         MON["Monitoring + optimisation<br/>(DESIGNED, NOT BUILT)"]
     end
@@ -97,11 +99,13 @@ flowchart TB
     DB[("Oracle metadata database (BUILT)<br/>17 tables, 8 views")]
 
     DOCS -->|HTTP + JWT| API
-    UI -.-> API
+    UI -->|HTTP + JWT| API
     API --> AUTH
     API --> FS
     API --> REG
     API --> SEL
+    API --> RPT
+    RPT --> DB
     FS --> SEL
     FS --> ENC
     FS --> STG
@@ -121,11 +125,11 @@ flowchart TB
     classDef notbuilt fill:#fde8e8,stroke:#c62828,stroke-dasharray:5 5,color:#000
     classDef simulated fill:#fff6d6,stroke:#b8860b,color:#000
     classDef built fill:#e6f4ea,stroke:#2e7d32,color:#000
-    class UI,REP,MON,REAL notbuilt
+    class REP,MON,REAL notbuilt
     class SIMA simulated
-    class DOCS,API,AUTH,FS,SEL,REG,STG,ENC,AUD,DB built
+    class UI,DOCS,API,AUTH,FS,SEL,REG,STG,ENC,AUD,RPT,DB built
 ```
-Dashed red boxes and dashed arrows are plans only. The yellow box is a stand-in for a cloud.
+Dashed red boxes and dashed arrows are plans only. The Streamlit page is optional and tested headlessly. The yellow box is a stand-in for a cloud.
 
 Rules the design enforces (all BUILT): clients never touch the database or providers; only the file service
 orchestrates; only adapters touch stored bytes; only the repository layer runs SQL; encryption happens before
@@ -214,11 +218,11 @@ payback, approval, and any migration. The `recommendations` table is unused.
 | M4 | Selection engine | file profile, candidates, weights | filters, cost, normalise, score, rank, explain | ranked list, scores, explanation | `weight_profiles`, `system_config` (read); decisions are written by M7 | **BUILT**; `test_selection_*`, worked example |
 | M5 | Storage and adapters | object key, bytes | local-folder put/get/delete/exists | stored objects | none | **BUILT, SIMULATED**; `test_crypto.py` (adapter tests) |
 | M6 | Encryption | plaintext, master key | AES-256-GCM, key wrap | ciphertext, wrapped key, nonce | `file_encryption` | **BUILT**; `test_crypto.py` |
-| M7 | File service | upload/download/delete requests | orchestration, compensating delete | file records, locations, decisions | `files`, `file_encryption`, `storage_locations`, `selection_decisions`, `selection_candidates` | **BUILT**; `test_files_api`, `test_oracle_files` |
+| M7 | File service | upload/download/delete requests; list and placement reads | orchestration, compensating delete | file records, locations, decisions; the owner's file list and saved placement explanation | `files`, `file_encryption`, `storage_locations`, `selection_decisions`, `selection_candidates` | **BUILT**; `test_files_api`, `test_api_file_views`, `test_oracle_files`, `test_oracle_file_views` |
 | M8 | Replication and recovery | file id, targets | copy, retry, repair | replica status, job history | `replication_jobs`, `storage_locations` | **DESIGNED, NOT BUILT** |
 | M9 | Audit and access log | events from all services | append-only inserts | audit and access history | `audit_events`, `access_logs` | **BUILT** |
 | M10 | Monitoring | logs, files, prices | aggregations | KPI tables, dashboard data | views only | **DESIGNED, NOT BUILT** |
-| M11 | Duplicates and optimisation | hashes, access stats, prices | grouping, cold-file rules | findings (read-only) | `files`, `access_logs`, `storage_locations`, `provider_pricing` | **PARTLY BUILT** (reports built in chunk 6; savings, recommendations and the `recommendations` table are not used) |
+| M11 | Duplicates and optimisation | hashes, access logs, prices | grouping by owner and hash; idle and download-count rules | duplicate groups with wasted bytes and estimated waste; cold-file candidates with evidence (read-only) | `files`, `access_logs`, `storage_locations`, `provider_pricing`, `system_config` (read) | **PARTLY BUILT**; `test_reports_logic`, `test_api_reports`, `test_oracle_reports`; savings, recommendations and the `recommendations` table are not built or used |
 | M12 | API and dashboard | HTTP requests | FastAPI routes; one optional Streamlit page | OpenAPI page, `scripts/demo.py` and `dashboard.py` work; no monitoring pages or charts | none | **BUILT** (small) |
 
 ## F. Technology stack
@@ -277,20 +281,25 @@ app/
   main.py                      application factory and error handlers
   config.py                    settings from environment variables only
   db/                          base.py (interfaces), pool.py (pool and transaction helper), errors.py,
-                               repositories/ (users, audit, providers, files: all SQL, bind variables only)
+                               repositories/ (users, audit, providers, files, reports: all SQL, bind variables only)
   auth/                        passwords.py, tokens.py, rbac.py (permission table), service.py, deps.py
   audit/service.py             audit events
   providers/                   module 3: registry service and row types
   selection/                   module 4: engine.py (pure), models, presets, explain, baselines, example, serialize, service
   crypto/service.py            AES-256-GCM envelope encryption
   storage/                     base.py (interface), simulated.py (the one adapter)
-  files/                       upload, download, delete service; errors; row types
-  api/                         schemas*.py, routers/ (auth, health, protected, providers, selection, files)
-scripts/                       set_password.py, worked_example.py, make_review_package.py
-sql/                           schema, indexes, views, seeds, migration, demos, synthetic data, cleanup
-docs/                          design, audit, data dictionary, run guide, engine, storage, test report, limitations, outline
-tests/unit/                    370 tests with an in-memory database and a real simulated adapter
-tests/integration/             40 tests against Oracle (you run them)
+  files/                       upload, download, delete, list and placement service; errors; row types
+  reports/                     chunk 6: models.py, service.py (arithmetic, thresholds, labels), sample_data.py (synthetic sample)
+  api/                         schemas*.py, routers/ (auth, health, protected, providers, selection, files, reports)
+scripts/                       demo.py, set_password.py, worked_example.py, make_review_package.py
+dashboard.py                   optional one-page Streamlit view (calls the API only)
+sql/                           schema, indexes, views, seeds, migration, demos, synthetic data, cleanup,
+                               reports.sql, seed_reports_config.sql, demo_queries.sql, explain_reports.sql
+schema.sql (repository root)   the ORIGINAL five-table schema as first uploaded; the revised schema is sql/schema.sql
+docs/                          design, audit, data dictionary, run guide, engine, storage, test report, limitations,
+                               outline, demo runbook, reports
+tests/unit/                    tests with an in-memory database and a real simulated adapter
+tests/integration/             tests against Oracle (you run them)
 requirements*.txt, pyproject.toml, .env.example, README.md
 ```
 
@@ -316,4 +325,11 @@ requirements*.txt, pyproject.toml, .env.example, README.md
 * **Size fit is a hard filter**, not a scored criterion. **All-equal metrics score 1.0** (no division by zero).
 * **Upload uses a compensating delete**; the promised orphan sweep was not built.
 * **Plaintext hashes reveal file existence** (limitation L-1): `content_sha256` is a hash of the plaintext.
+* **Duplicates are reported within one owner** and a duplicate group's original is the oldest upload; copies of the same content owned by
+  two users are not reported (each file has its own key and owner).
+* **A cold file needs two things**: idle more than N days *and* fewer than M successful downloads in a longer window (default 90 days, 3, 365).
+  A separate window is needed because a 30-day count is always zero for a file idle 90 days.
+* **The reports have their own read-only SQL**; the chunk 1 views `v_duplicate_files`, `v_file_access_stats`, `v_region_usage` and others are not used by any code.
+* **The scripted demo acts only through the API** and reads the database only with SELECT; its two labelled direct writes are the role of its own
+  synthetic accounts and the synthetic report sample.
 * **File upload takes the raw body** (no multipart library); the optional dashboard's dependencies are kept out of the main environment.

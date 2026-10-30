@@ -1,5 +1,9 @@
 # Demo runbook: every command, in order
 
+**The main demo is now `scripts\demo.py` (one command, no manual steps; see `07-report-outline-and-demo.md`, Part 2A).** This runbook is the
+manual route (PowerShell commands and the `/docs` page) and the fallback if the script cannot run. It predates chunks 6 and 7, so it does not
+cover the duplicate and cold-file reports, `GET /files` or the placement endpoint; those are in `09-reports.md` and `scripts\demo.py`.
+
 All commands in this file were run against the real project while writing it; the "you should see" results are
 what came out. Prices, scores and latencies are **illustrative**; the cloud storage is **simulated**.
 

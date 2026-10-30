@@ -1,7 +1,7 @@
 # Chunk 4: Simulated storage, encryption, upload and download
 
 Status: built and tested. **370 unit tests and 40 Oracle integration tests pass** (11 of those are new in
-this chunk). **Storage is SIMULATED**: objects are written to local folders. No real cloud adapter exists and
+this chunk; counts at the time of chunk 4, later chunks added tests, see `05-test-report.md`). **Storage is SIMULATED**: objects are written to local folders. No real cloud adapter exists and
 nothing here talks to AWS, Azure or Google Cloud. Prices, scores and latencies used by the selection step
 are the illustrative ones from earlier chunks.
 
@@ -121,7 +121,7 @@ Query parameters: `file_name` and `security_level` (LOW, MEDIUM, HIGH) are requi
 
 | Check | Result |
 |---|---|
-| Unit tests (in-memory database, REAL simulated adapter on a temporary folder) | 370 pass |
+| Unit tests (in-memory database, REAL simulated adapter on a temporary folder) | 370 pass (at chunk 4) |
 | Oracle integration tests (real database, simulated storage) | 40 pass, 11 of them new: every row in `files`, `file_encryption` (60-byte wrapped key, 12-byte nonce), `storage_locations`, `selection_decisions` and candidates, `access_logs`, `audit_events`; tamper; wrong user; forced DB failure after storing; forced storage failure; oversize; delete |
 | Deliberate bugs (16) | each broke at least one test: compensating delete removed, storage failure swallowed, owner check removed, plaintext stored instead of ciphertext, plaintext-hash check skipped, key kept on delete, confirm ignored, associated data dropped, failures not logged, size limit removed (service only; router and service both), hash check bypassed, wrong user gets the file, empty file allowed, unsafe name allowed, key version unchecked. Two survived the first time (size check and ciphertext-hash check, each backed by a second layer), so tests were added that pin each layer separately |
 | Real HTTP end to end (uvicorn, Oracle, temp folder) | register, login, upload 20,027 bytes, the object on disk is 20,043 bytes (plaintext + 16), does not start with `%PDF` and contains no marker; download is byte-identical with matching SHA-256; flipping one stored byte gives 502; delete without confirm 400, with confirm 200; object gone; download then 410 |

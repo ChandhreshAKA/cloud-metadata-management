@@ -48,20 +48,29 @@ So "secure" is covered; "highly available" is not.
 
 ### Objective 4: optimize storage efficiency and monitor performance. **Partially covered**
 
-Built (chunk 6, `09-reports.md`): a read-only **duplicate-file report** (copies, wasted bytes, estimated monthly
-waste from illustrative prices) and a read-only **cold-file report** (idle time and recent downloads, with evidence,
-labelled "candidate for archival review"). These identify waste; they change nothing.
+What is implemented is **identifying** waste and showing where files are. Nothing **acts** on it, and nothing monitors
+provider performance or cost over time.
 
-**Still not implemented:** a monitoring module, usage and performance reporting, archival or migration
-recommendations with saving and payback, a migration workflow, and monitoring pages or charts (only a one-page optional view exists).
+| Part | Status | Evidence or gap |
+|---|---|---|
+| Identify duplicate files and the bytes they waste | **Covered** (exact duplicates, within one owner) | `GET /reports/duplicates`, `sql/reports.sql`, `09-reports.md`; tests `test_reports_logic`, `test_api_reports`, `test_oracle_reports` |
+| Estimate the monthly cost of duplicate waste | **Covered, estimate only** | bytes / 2^30 x the **illustrative** price of each extra copy's location; an unpriced extra adds $0 and is flagged |
+| Identify cold files | **Covered** as a read-only list | `GET /reports/cold-files`: idle more than N days and fewer than M downloads in a window, last access, 30-day count, provider, region, storage class, evidence, label "candidate for archival review" |
+| Show a user their files and why each is where it is | **Covered** | `GET /files`, `GET /files/{id}/placement` (the saved ranking and explanation) |
+| Recommend archiving or migrating, estimate saving, migration cost or payback; migrate anything | **Not covered** | not built; the `recommendations` table is unused; no saving or payback is computed for cold files |
+| Storage usage and cost reports (per provider, region or tier) | **Not covered** | the views `v_region_usage` and `v_location_monthly_cost` exist, but no code or endpoint uses them |
+| Provider performance reports and monitoring | **Not covered** | latency is logged in `access_logs` and the view `v_region_latency_summary` exists, but nothing reports or charts it |
+| Dashboard | **Not covered** beyond one optional page | `dashboard.py` shows the file list, placement and the two report tables; no usage, cost or performance pages, no charts |
+
+So "find waste" is covered; "optimise" (act on it) and "monitor performance" are not.
 
 Underlying groundwork:
 * `access_logs` rows (with latency and outcome) are written by upload, download and delete.
 * The plaintext SHA-256 of every file is stored in `files.content_sha256`.
 * SQL views created in chunk 1: `v_duplicate_files`, `v_file_access_stats`, `v_location_monthly_cost`,
   `v_region_usage`, `v_region_latency_summary`. All eight views are valid and can be queried (checked read-only
-  against the database). No application code calls them and they have no tests of their own beyond the chunk 1
-  install verification, which queried four of them.
+  against the database). No application code calls them (the chunk 6 reports use their own SQL) and they have no
+  tests of their own beyond the chunk 1 install verification, which queried four of them.
 * An unused `recommendations` table.
 
 ## 2. What is SIMULATED
@@ -73,7 +82,7 @@ Underlying groundwork:
 | Reliability and security scores, egress prices, size caps | invented | `provider_regions`, `cloud_providers` (`sql/seed_data.sql`) |
 | Latency | seeded probes marked `source = 'SIMULATED'`, assuming a client in India; the latency recorded on upload and download is local disk time | `performance_measurements`, `access_logs` |
 | Key management | the master key is the `MASTER_KEY` environment variable in the application's own memory. The cryptography (AES-256-GCM, key wrapping) is real; the *KMS* is not. What a real KMS would add is listed in `docs/04-storage-encryption.md` | `app/crypto/service.py` |
-| Demo and test data | seeded users, files and logs; synthetic users and logs for EXPLAIN | `sql/seed_demo.sql`, `sql/synthetic_data.sql`, `tests/` |
+| Demo and test data | seeded users, files and logs; synthetic users and logs for EXPLAIN; the synthetic report sample (`rptsyn_*` users, `SYN_RPT_*` files); the demo accounts `demo_user` and `demo_auditor`, whose auditor role the demo script sets directly in the database | `sql/seed_demo.sql`, `sql/synthetic_data.sql`, `app/reports/sample_data.py`, `scripts/demo.py`, `tests/` |
 | Provider health | set by an administrator through the API, not detected | `provider_regions.health_status` |
 
 Real and unsimulated: the schema and every constraint, all SQL, authentication, RBAC, the audit trail, the selection
@@ -93,7 +102,7 @@ SELECT region_id, source, COUNT(*) FROM performance_measurements GROUP BY region
 | Replication and failover | one copy per file; a provider outage makes that file unavailable |
 | Near-duplicate and cross-owner duplicate detection | exact duplicates within one owner are reported (chunk 6); a slightly edited copy is not found |
 | Migration or archival recommendations, savings and payback, migration workflow | none; cold files are only listed as candidates (chunk 6) |
-| Monitoring of usage, access frequency, costs, performance | none |
+| Storage usage and cost reports, provider performance reports, monitoring over time | none (the duplicate report estimates waste and the cold report counts downloads; neither is a usage, cost or performance report) |
 | Monitoring pages and charts | only a one-page optional Streamlit view of files, placement and the two reports (`dashboard.py`); the scripted demo is `scripts/demo.py` |
 | Real cloud adapters | one simulated adapter only |
 | TLS / HTTPS | not configured |
@@ -112,7 +121,9 @@ SELECT region_id, source, COUNT(*) FROM performance_measurements GROUP BY region
   injection that reads the table) can compute the hash of a file they already hold and learn whether it is stored
   here and by whom; equal hashes also show that two files are identical, even across owners. Low-entropy files can be
   guessed offline. The upload response returns the hash to its owner. Not built: using a keyed hash (HMAC-SHA-256 with
-  a server-side secret), which keeps duplicate detection inside the system and defeats outside confirmation.
+  a server-side secret), which keeps duplicate detection inside the system and defeats outside confirmation. The
+  duplicate report (chunk 6) is built on this hash. It only groups files within one owner and a USER only sees their own groups, but ADMIN and
+  AUDITOR see every owner's group hashes through the report, and the database column itself is unchanged, so the caveat above still applies.
 * **403 versus 404 reveals which file ids exist** (ids are sequential).
 * **JWT is HS256 with no revocation:** a stolen token works until it expires (30 minutes); a disabled account or a
   changed role does take effect immediately because the database is consulted on every request.
@@ -142,3 +153,8 @@ SELECT region_id, source, COUNT(*) FROM performance_measurements GROUP BY region
 * The selection engine's quality is shown by worked examples, scenario tests and baselines on **invented data**. It
   cannot show that the engine would choose well for real prices and real latency.
 * The simulated storage cannot show behaviour under real network failure, throttling, eventual consistency or cost.
+* The **duplicate and cold-file reports** are checked against a **synthetic** sample with a written answer key, on one machine.
+  The unit tests use canned rows, so they prove the arithmetic, role scoping and wording, not the SQL; the Oracle tests prove the SQL on that
+  sample. They cannot show how the rules behave on real usage patterns, and no query plan or timing has been recorded for the report queries.
+* The **demo script** passes against the real API and database on the machine where it was written; its results table in
+  `05-test-report.md` (T12) is for your own run. The optional Streamlit page was tested headlessly, not in a browser window.

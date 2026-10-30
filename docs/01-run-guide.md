@@ -273,6 +273,17 @@ To undo: `sqlplus cloudmeta@localhost:1521/FREEPDB1 '@rollback_migration.sql'` (
 
 ---
 
+## Chunk 6 and 7 SQL files (read-only unless stated; no schema change)
+
+| File | What it does | Run |
+|---|---|---|
+| `reports.sql` | the duplicate-file and cold-file reports in SQL, with editable thresholds | `sqlplus cloudmeta@localhost:1521/FREEPDB1 '@reports.sql'` (from `sql`) |
+| `seed_reports_config.sql` | optional: adds `cold.max_accesses` and `cold.window_days` to `system_config` (writes two rows; safe to repeat) | `'@seed_reports_config.sql'` |
+| `demo_queries.sql` | queries Q1 to Q10 to run live after each section of `scripts/demo.py` | `'@demo_queries.sql'` |
+| `explain_reports.sql` | plans of the two report queries (writes only plan-table rows) | `'@explain_reports.sql'` |
+
+The synthetic report sample is created and removed from Python, not SQL: `python -m app.reports.sample_data seed|cleanup`.
+
 ## Where I am least sure (check these first if something fails)
 
 1. `SET FEEDBACK ONLY` needs SQL*Plus 12.2 or later.

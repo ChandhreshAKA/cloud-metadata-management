@@ -7,20 +7,23 @@ access control and auditing of multi-cloud file storage. Providers are **simulat
 
 | Area | State |
 |---|---|
-| Oracle schema, migration, demos, indexes (`sql/`) | Done and executed on Oracle 26ai Free (Chunk 1) |
-| Config, DB layer, register, login (Argon2 + JWT), RBAC, audit, health | **Built and verified.** 127 unit tests pass (fake database); 13 integration tests pass against Oracle 26ai Free (run by the project owner, 1.93 s) |
-| Provider registry (admin-only writes) and the selection engine, dry-run endpoints, worked example, baselines | **Built and verified.** 275 unit tests; 29 integration tests pass against Oracle (run at build time). See `docs/03-selection-engine.md` |
-| Encrypted upload, download and delete to **SIMULATED** local-folder storage (AES-256-GCM, selection engine called on every upload) | **Built and verified.** 370 unit tests; 40 integration tests pass against Oracle; real-HTTP end-to-end run done. See `docs/04-storage-encryption.md` |
-| Read-only duplicate-file and cold-file reports (Chunk 6) with a seeded **synthetic** sample | **Built and verified.** 402 unit tests; 54 integration tests pass against Oracle; six deliberate SQL bugs all caught. See `docs/09-reports.md` |
-| Scripted command-line demo (`scripts/demo.py`), live SQL (`sql/demo_queries.sql`), file list and stored-placement endpoints, optional one-page Streamlit dashboard (Chunk 7) | **Built and verified.** Demo: 22 of 22 checks pass against real Oracle and a real API; dashboard tested headlessly against the real API. See the sections below |
-| Test report, limitations, objective map, report outline, demo checklist | **Written** (`docs/05` to `07`); the results tables are for you to fill from your own runs |
-| Monitoring pages, charts, recommendations, savings and migration (objective 4) | **Not built** |
-| Replication, failover, migration workflow, real cloud adapters, TLS, key rotation, orphan sweep | **Not built** |
+| Oracle schema, migration, demos, indexes (`sql/`) | Done and executed on Oracle 26ai Free (chunk 1). Not yet run: the 10,000-row EXPLAIN comparison and the legacy-migration test |
+| Config, DB layer, register, login (Argon2 + JWT), RBAC, audit, health (chunk 2) | **Built and tested** |
+| Provider registry (admin-only writes), selection engine, dry-run endpoints, worked example, baselines (chunk 3) | **Built and tested.** See `docs/03-selection-engine.md` |
+| Encrypted upload, download and delete to **SIMULATED** local-folder storage (AES-256-GCM; the selection engine runs on every upload) (chunk 4) | **Built and tested.** See `docs/04-storage-encryption.md` |
+| Read-only **duplicate-file report** and **cold-file report**, plus a seeded synthetic sample (chunk 6) | **Built and tested** against Oracle. Exact duplicates within one owner; cold files listed as "candidates for archival review". See `docs/09-reports.md` |
+| `scripts/demo.py` (scripted demo), `sql/demo_queries.sql` (live SQL), `GET /files` and `GET /files/{id}/placement`, optional one-page Streamlit page `dashboard.py` (chunk 7) | **Built.** The demo passed against the real API and Oracle on the machine where it was written; the Streamlit page was tested headlessly, not in a browser window |
+| Test report, limitations, objective map, report outline, demo checklist (chunk 8) | **Written** (`docs/05` to `docs/09`). The results tables are **blank for you to fill from your own runs** |
+| **Objective 4 is partially covered.** Implemented: duplicate-file report, cold-file report, file list, stored placement explanation | See `docs/06-limitations-and-objectives.md` |
+| **Not built:** replication and failover; migration recommendations and saving or payback estimates; storage usage and cost reports; provider performance reports; monitoring pages and charts (the Streamlit page is one optional page, no charts); real cloud adapters; TLS; key rotation; orphan sweep | Designed in `docs/00-design.md` where noted, not part of the project |
 | Account lockout, password reset, token revocation, rate limiting | Deliberately not built |
+
+Test counts and coverage are not stated here: they change with every chunk. Run the commands in "Run the checks" and fill
+the tables in `docs/05-test-report.md`.
 
 ## Prerequisites
 
-* Windows, PowerShell, Python 3.12 (3.11+ should work)
+* Windows, PowerShell, Python 3.12 (the version this was developed and tested with; other versions are untested)
 * Oracle Database Free installed and `sql/install_fresh.sql` already run (see `docs/01-run-guide.md`)
 * **No Oracle Instant Client is needed.** The `oracledb` driver runs in *thin mode* (pure Python).
   Instant Client would only be needed for "thick mode" features, which this project does not use.
@@ -58,6 +61,8 @@ Edit `.env` (it is git-ignored). Set at least `ORACLE_PASSWORD`, a real `JWT_SEC
 | `STORAGE_ROOT` | no | `storage_sim` | folder for the SIMULATED provider storage (git-ignored) |
 | `APP_ENV` | no | `dev` | `dev`, `test` or `production` |
 | `RUN_INTEGRATION` | no | `0` | set to `1` to run `tests/integration` |
+| `DEMO_PASSWORD` | no | `demo-password-123` | password for the synthetic demo accounts; read only by `scripts/demo.py` (from the environment or `.env`) |
+| `API_URL` | no | `http://127.0.0.1:8000` | where `dashboard.py` finds the API; set it in the shell (`$env:API_URL = ...`), it is **not** read from `.env` |
 
 The application reads **environment variables only**. `python-dotenv` merely loads `.env` into the
 environment when the server starts.
@@ -85,7 +90,23 @@ $env:RUN_INTEGRATION = "1"
 Remove-Item Env:RUN_INTEGRATION
 ```
 
-(`.env` must contain valid `ORACLE_*` and `JWT_SECRET` values; the tests load it.)
+(`.env` must contain valid `ORACLE_*`, `JWT_SECRET` and `MASTER_KEY` values; the tests load it.)
+
+**Coverage, and the commands that fill the results tables.** Unit tests alone leave the Oracle repository code
+uncovered (only the integration tests run that SQL), so the combined run is the fair figure:
+
+```powershell
+New-Item -ItemType Directory -Force test-results | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/unit -v --cov=app --cov-report=term-missing | Tee-Object -FilePath test-results\unit.txt
+$env:RUN_INTEGRATION = "1"
+.\.venv\Scripts\python.exe -m pytest tests/integration -v --cov=app --cov-report=term-missing | Tee-Object -FilePath test-results\integration.txt
+.\.venv\Scripts\python.exe -m pytest --cov=app --cov-report=term-missing --cov-report=html | Tee-Object -FilePath test-results\combined.txt
+Remove-Item Env:RUN_INTEGRATION
+```
+
+`test-results\` and `htmlcov\` are git-ignored. The integration tests leave `itest_*@example.test` users and audit rows;
+`sql\cleanup_integration_tests.sql` removes them (it truncates `audit_events`: development database only). The full command list and
+the blank results tables are in `docs/05-test-report.md`.
 
 ## Start the API
 
@@ -127,6 +148,9 @@ Invoke-RestMethod -Uri http://127.0.0.1:8000/protected/providers -Headers $auth 
 
 One command runs the whole story against the real API and the real Oracle database. It starts the API
 itself if none is listening, and stops it at the end. Output is labelled **SIMULATION MODE**.
+
+Prerequisites: Oracle running with the schema and seed data installed (`sql/install_fresh.sql`), and `.env` with `ORACLE_*`,
+`JWT_SECRET` and `MASTER_KEY`. If your own API is already running on port 8000 the demo uses it.
 
 ```powershell
 cd C:\dbmsproject
@@ -180,7 +204,7 @@ python -m venv .venv-dash
 .\.venv-dash\Scripts\python.exe -m streamlit run dashboard.py
 ```
 
-It uses `API_URL` (default `http://127.0.0.1:8000`). Log in as a normal USER (for example
+It uses the shell variable `API_URL` (default `http://127.0.0.1:8000`; for example `$env:API_URL = "http://127.0.0.1:8001"`). Log in as a normal USER (for example
 `demo_user@example.test` after the demo created it; the password is `demo-password-123` unless you set
 `DEMO_PASSWORD`). ADMIN and AUDITOR accounts have no own files, so the file tabs show a message for them.
 
@@ -221,6 +245,7 @@ It uses `API_URL` (default `http://127.0.0.1:8000`). Log in as a normal USER (fo
 | `config:read`, `audit:read`, `report:read` | | yes | yes |
 
 AUDITOR holds only read permissions (a test enforces that it holds no modifying permission).
+The report endpoints use two rules: `report:read` (ADMIN, AUDITOR) shows every owner's files; a USER, who holds `file:read_own`, sees only their own.
 ADMIN has no own-file permissions in this chunk; add them to the table if admins should upload.
 Every request re-reads the user's **role and status from the database**, so a role change or a
 disabled account takes effect immediately, and a forged `role` claim in a token has no effect.
@@ -276,7 +301,8 @@ Open the object in `storage_sim`: it is ciphertext (no `%PDF` header, your text 
 `USER_REGISTERED` (success and duplicate-email failure), `LOGIN_OK`, `LOGIN_FAILED` (the reason is
 stored internally; the client always gets the same 401), `ACCESS_DENIED` (403), and for registry
 changes `CONFIG_CHANGED` and `PROVIDER_STATUS_CHANGED` (old and new values in `details_json`), and for files
-`FILE_UPLOADED`, `FILE_DELETED` and `ACCESS_DENIED` (not the owner). Downloads are recorded in `access_logs`. Audit rows are
+`FILE_UPLOADED`, `FILE_DELETED` and `ACCESS_DENIED` (not the owner, including `GET /files/{id}/placement`). Downloads are recorded in `access_logs`. The report endpoints and `GET /files` write nothing
+(a refused request is still an `ACCESS_DENIED` row). Audit rows are
 committed in their own transaction so they survive the failed request, and if an audit write fails
 the request fails too. Requests with a missing or invalid token (401) are not audited.
 
@@ -303,6 +329,9 @@ then `Stop-Process -Id <id>`. For the demo, point it at the other port with
 `scripts\demo.py --base-url http://127.0.0.1:8001`; if the demo says the API did not start, read
 `demo_server.log` in the project folder.
 
+If the demo says `login failed for demo_user@example.test`, that account was created earlier with a different
+`DEMO_PASSWORD`; set the same `DEMO_PASSWORD` again.
+
 The demo reports the same three problems in its own words: `Cannot connect to Oracle (...)` (item 1),
 `Environment variable ORACLE_... is not set` (item 2) and `The API did not start` (item 3).
 
@@ -311,38 +340,49 @@ The demo reports the same three problems in its own words: `Cannot connect to Or
 | File | What it is |
 |---|---|
 | `docs/00-design.md` | system design, refreshed: every module and workflow marked built, partly built, simulated or **designed, not built** |
-| `docs/01-schema-audit.md`, `01-data-dictionary.md`, `01-run-guide.md` | database audit, dictionary, how to run the SQL scripts |
+| `docs/01-schema-audit.md`, `01-data-dictionary.md`, `01-run-guide.md`, `01-explain-results.md` | database audit, dictionary, how to run the SQL scripts, EXPLAIN PLAN results |
 | `docs/03-selection-engine.md` (and `03-review-package.md`) | selection engine, worked example, review material |
 | `docs/04-storage-encryption.md` | simulated storage, encryption, upload, download, delete |
 | `docs/05-test-report.md` | exact commands and **results tables for you to fill from your own runs** |
 | `docs/06-limitations-and-objectives.md` | what is simulated, what is not implemented, objective-to-evidence map |
 | `docs/07-report-outline-and-demo.md` | one-page report outline and the demo checklist |
 | `docs/08-demo-runbook.md` | every manual demo command in order (the automated demo is `scripts/demo.py`) |
-| `sql/demo_queries.sql` | read-only SQL to run live after each demo step |
+| `sql/demo_queries.sql` | read-only SQL to run live after each demo step (Q1 to Q10) |
+| `sql/reports.sql`, `sql/seed_reports_config.sql`, `sql/explain_reports.sql` | the two reports in SQL (read-only), optional report settings, plans of the report queries |
 | `docs/09-reports.md` | Chunk 6: duplicate and cold-file reports, synthetic sample, commands, verification results |
 
-**Project status in one line:** database, auth and RBAC, provider selection, and encrypted upload/download to simulated storage are built and tested. Read-only duplicate and cold-file reports are built too. Replication and failover, monitoring and recommendations (objective 4) and the dashboard are **not built**.
+**Project status in one line:** database, auth and RBAC, provider selection, encrypted upload/download to simulated storage, read-only duplicate and cold-file reports and a scripted demo are built and tested. Replication and failover, migration recommendations and savings, usage, cost and performance reports, and monitoring pages are **not built** (objective 4 is partially covered).
 
-## Folder structure (Chunk 0 layout)
+## Folder structure
 
 ```
 app/
   main.py               app factory, error handlers
   config.py             settings from environment variables
-  db/                   base.py (interfaces), pool.py (pool + transaction helper),
-                        errors.py (Oracle error mapping), repositories/ (all SQL, bind variables only)
+  db/                   base.py (interfaces), pool.py (pool + transaction helper), errors.py (Oracle error mapping),
+                        repositories/ (users, audit, providers, files, reports: all SQL, bind variables only)
   auth/                 passwords.py (Argon2), tokens.py (JWT), rbac.py (permission table),
-                        service.py (register/login), deps.py (current user, require_permission)
+                        service.py (register/login), deps.py (current user, require_permission, report scope)
   audit/service.py      audit events
   providers/            module 3: registry service and row types
-  selection/            module 4: engine.py (pure), models, presets, explain, baselines, example, service
+  selection/            module 4: engine.py (pure), models, presets, explain, baselines, example, serialize, service
   crypto/               AES-256-GCM envelope encryption (master key from the environment)
   storage/              storage interface + the one SIMULATED local-folder adapter
-  files/                upload / download / delete service, errors, row types
-  api/                  schemas*.py, routers/ (auth, health, protected, providers, selection)
-scripts/set_password.py activate seeded demo users
-sql/                    Chunk 1 database scripts (schema, seed, demos, migration)
-docs/                   design, schema audit, run guide, results
+  files/                upload / download / delete / list / placement service, errors, row types
+  reports/              chunk 6: models, service (arithmetic, thresholds, labels), sample_data (synthetic sample)
+  api/                  schemas*.py, routers/ (auth, health, protected, providers, selection, files, reports)
+scripts/                demo.py (scripted demo), set_password.py, worked_example.py, make_review_package.py
+dashboard.py            optional one-page Streamlit view (calls the API only)
+sql/                    database scripts: schema, indexes, views, seeds, migration, demos, synthetic data, cleanup,
+                        reports.sql, seed_reports_config.sql, demo_queries.sql, explain_reports.sql
+schema.sql              the ORIGINAL five-table schema as first uploaded (the revised one is sql/schema.sql)
+docs/                   design, schema audit, run guide, selection, storage, test report, limitations, outline, demo, reports
 tests/unit/             fake-database tests (no Oracle)
 tests/integration/      tests that need Oracle (you run them)
+requirements.txt        runtime dependencies          requirements-dev.txt   + test and lint tools
+requirements-lock.txt   every installed package pinned   requirements-optional.txt   Streamlit, for dashboard.py only
+.env.example            copy to .env (git-ignored)     pyproject.toml   pytest and ruff settings
 ```
+
+Generated and git-ignored: `.env`, `.venv/`, `storage_sim/` (the simulated provider folders), `test-results/`, `htmlcov/`, `*.log`
+(including `demo_server.log`).

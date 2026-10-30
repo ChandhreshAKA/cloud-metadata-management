@@ -12,6 +12,11 @@ Two kinds of numbers appear here and they are kept apart:
 
 Blank cells are blank on purpose. Never fill one from memory or from this document's expectations.
 
+**Updated after chunks 6 and 7.** Sections 2.11 to 2.13 and tables T9 to T12 are new and are blank for your
+runs. The totals recorded in T1 date from before chunks 6 and 7 and are now out of date: your run is the only
+authority on how many tests exist and pass. The only chunk 6 and 7 results written down in this file are the
+deliberate-bug checks in section 4 (run by the assistant, source named).
+
 ## 1. Environment record (fill in)
 
 | Item | Command | Your value |
@@ -68,6 +73,12 @@ tests execute their SQL; the combined run is the fair figure for them.
 Get-Content test-results\unit.txt -Tail 45
 Get-Content test-results\integration.txt -Tail 45
 Get-Content test-results\lint.txt
+Get-Content test-results\demo.txt -Tail 40      # after section 2.12
+```
+
+To fill the "Collected" columns (the number of tests pytest finds per file, not a result):
+```powershell
+.\.venv\Scripts\python.exe -m pytest --collect-only -q | Select-String "::" | ForEach-Object { ($_ -split "::")[0] } | Group-Object | Sort-Object Name | Format-Table Name, Count
 ```
 
 ### 2.6 Chunk 1 database scripts (from the `sql` folder; each asks for the `cloudmeta` password)
@@ -117,7 +128,58 @@ cd C:\dbmsproject
 
 ### 2.10 Upload and download
 Automated: `pytest tests/unit/test_files_api.py -v`, and `pytest tests/integration/test_oracle_files.py -v` (with
-`RUN_INTEGRATION=1`). Manual, over real HTTP: follow the steps in `docs\07-report-outline-and-demo.md`, section 3.
+`RUN_INTEGRATION=1`). Manual, over real HTTP: run `scripts\demo.py` (section 2.12) or follow the fallback steps in
+`docs\07-report-outline-and-demo.md`, Part 2.
+
+### 2.11 Duplicate and cold-file reports (chunk 6)
+The synthetic sample is made-up data (users `rptsyn_*@example.test`, files `SYN_RPT_*`); it never touches your own
+files and `cleanup` removes it.
+```powershell
+cd C:\dbmsproject
+.\.venv\Scripts\python.exe -m app.reports.sample_data seed         # prints the expected answer
+.\.venv\Scripts\python.exe -m pytest tests/unit/test_reports_logic.py tests/unit/test_api_reports.py -v
+$env:RUN_INTEGRATION = "1"
+.\.venv\Scripts\python.exe -m pytest tests/integration/test_oracle_reports.py -v | Tee-Object -FilePath test-results\reports_integration.txt
+Remove-Item Env:RUN_INTEGRATION
+sqlplus cloudmeta@localhost:1521/FREEPDB1 '@sql\reports.sql'        # the same two reports in SQL (read-only)
+```
+Through the API (the integration test seeds and removes its own copy of the sample; run `seed` first if you use
+this and remember `cleanup` afterwards). Use an ADMIN or AUDITOR account so the sample owners' files are visible:
+```powershell
+$base = "http://127.0.0.1:8000"
+$tok = (Invoke-RestMethod -Method Post -Uri "$base/auth/login" -ContentType "application/json" -Body (@{email="auditor@example.com";password="YOUR-AUDITOR-PASSWORD"} | ConvertTo-Json)).access_token
+$h = @{ Authorization = "Bearer $tok" }
+$d = Invoke-RestMethod -Uri "$base/reports/duplicates" -Headers $h
+$d.groups | Where-Object { $_.files[0].file_name -like "SYN_RPT_*" } | ForEach-Object { "{0} | {1} copies | {2} wasted bytes | `${3} | unpriced {4}" -f $_.files[0].file_name, $_.copies, $_.wasted_bytes, $_.estimated_monthly_waste_usd, $_.unpriced_extra_copies }
+foreach ($q in "", "?max_accesses=10", "?idle_days=60", "?idle_days=89", "?idle_days=90", "?idle_days=250", "?max_accesses=1", "?window_days=90") {
+    "== cold-files$q"
+    (Invoke-RestMethod -Uri "$base/reports/cold-files$q" -Headers $h).files | Where-Object { $_.file_name -like "SYN_RPT_*" } | ForEach-Object { "{0} (owner {1})" -f $_.file_name, $_.owner_id }
+}
+.\.venv\Scripts\python.exe -m app.reports.sample_data cleanup
+```
+
+### 2.12 The scripted demo (chunk 7)
+```powershell
+cd C:\dbmsproject
+.\.venv\Scripts\python.exe scripts\demo.py | Tee-Object -FilePath test-results\demo.txt
+```
+It starts the API itself if none is listening. It exits non-zero if any check fails. The live SQL for each section is
+`sql\demo_queries.sql`; to use it, run `scripts\demo.py --pause --keep` and, afterwards, `scripts\demo.py --cleanup-only`.
+Optional tests of its helpers and of the two new file endpoints:
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/unit/test_demo_helpers.py tests/unit/test_api_file_views.py -v
+$env:RUN_INTEGRATION = "1"
+.\.venv\Scripts\python.exe -m pytest tests/integration/test_oracle_file_views.py -v
+Remove-Item Env:RUN_INTEGRATION
+```
+
+### 2.13 Plans of the two report queries (no index or schema change was made in chunks 6 and 7)
+```powershell
+cd C:\dbmsproject\sql
+sqlplus cloudmeta@localhost:1521/FREEPDB1 '@explain_reports.sql'
+```
+Read the operation and the `Buffers` column in `explain_reports.log`. For a meaningful plan load
+`synthetic_data.sql 100000` first (and run `cleanup_synthetic.sql` afterwards). Nothing has been recorded.
 
 ## 3. Results tables
 
@@ -130,6 +192,9 @@ Automated: `pytest tests/unit/test_files_api.py -v`, and `pytest tests/integrati
 | Integration tests | 40 passed (assistant, against your Oracle with a process-only master key) | | | | |
 | Coverage, unit only, whole `app` | 92% total (assistant) | | | | |
 | Coverage, unit plus integration | not run | | | | |
+
+The rows above were recorded before chunks 6 and 7 and are historical. Chunks 6 and 7 added new test files (T11
+and the "Collected" command in section 2.5) and several modules, so the current totals are different: use your own run.
 
 ### T2. Coverage by module (fill from `test-results\combined.txt`)
 
@@ -144,6 +209,9 @@ Automated: `pytest tests/unit/test_files_api.py -v`, and `pytest tests/integrati
 | `app/providers/service.py` | | | | |
 | `app/db/pool.py` | | | | |
 | `app/db/repositories/` (all) | | | | |
+| `app/reports/service.py` (chunk 6) | | | | |
+| `app/db/repositories/reports.py` (chunk 6) | | | | |
+| `app/api/routers/reports.py`, `app/api/routers/files.py` | | | | |
 | **TOTAL** | | | | |
 
 ### T3. Authentication, RBAC and audit
@@ -162,6 +230,9 @@ Automated: `pytest tests/unit/test_files_api.py -v`, and `pytest tests/integrati
 | SQL injection: validation, bind-only SQL, static scan | `tests/unit/test_sql_injection.py` | 29 | | |
 | Same behaviours against real Oracle (round trip, duplicate e-mail 409, audit rows, role matrix, injection, constraints, transactions) | `tests/integration/test_oracle_integration.py` | 13 | | |
 
+The "Collected" numbers in T3a date from chunk 4. `test_sql_injection.py` now collects one more case because its static
+scan also covers the new `app/db/repositories/reports.py`; re-collect with the command in section 2.5.
+
 **T3b. Role matrix (expected status code per role).**
 
 | Request | USER | ADMIN | AUDITOR | Your run (USER / ADMIN / AUDITOR) |
@@ -174,6 +245,11 @@ Automated: `pytest tests/unit/test_files_api.py -v`, and `pytest tests/integrati
 | `POST /selection/select` | 200 | 200 | 200 | |
 | `POST /files` (upload) | 201 | 403 | 403 | |
 | `GET /files/{id}/download` (own file) | 200 | 403 | 403 | |
+| `GET /files` (own file list) | 200 | 403 | 403 | |
+| `GET /files/{id}/placement` (own file) | 200 | 403 | 403 | |
+| `GET /reports/duplicates` | 200 (own files) | 200 (all owners) | 200 (all owners) | |
+| `GET /reports/cold-files` | 200 (own files) | 200 (all owners) | 200 (all owners) | |
+| `POST /reports/duplicates` (any write method) | 405 | 405 | 405 | |
 | any of the above without a token | 401 | 401 | 401 | |
 
 **T3c. Audit events.** After running the integration tests, check what the database recorded:
@@ -346,6 +422,157 @@ is a manual run.
 | Delete needs `confirm=true`, then erases key and object | 400 without; 200 with; then 410 | `test_delete_requires_the_confirm_flag`, `test_confirmed_delete...` | `test_delete_needs_confirm_then_erases...` | pass, pass | |
 | Real HTTP, end to end (server, Oracle, temporary storage folder) | upload 201; object on disk = plaintext + 16, no `%PDF`, no marker; download identical; one flipped byte 502; delete 400 then 200; then 410 | n/a | n/a | observed by the assistant, twice: (1) from Python over HTTP, a 20,027-byte file stored as 20,043 bytes, all outcomes as expected; (2) by running the PowerShell commands of `07-report-outline-and-demo.md` exactly as written: a 47-byte file stored as 63 bytes, the marker not found in the stored object, hashes equal, a flipped byte gave the 502 integrity message, a second user got 403, delete without confirm was refused, delete with confirm gave `crypto_erased` true, then download gave 410 and no object was left | |
 
+### T9. Duplicate detection against the seeded data (chunk 6)
+Seed with `python -m app.reports.sample_data seed` (section 2.11). "Expected" is the answer key in
+`app/reports/sample_data.py` plus the hand calculation shown; it is not a result. Prices are illustrative
+(`sql/seed_data.sql`): Azure Central India HOT 0.0240, Google Cloud asia-south1 HOT 0.0230, AWS us-east-1 HOT
+0.0250 x 0.92 = 0.0230, per GiB-month.
+
+**T9a. Groups that must be found**
+
+| Group (owner) | Files, original first | Expected copies | Expected wasted bytes | Expected est. monthly waste (hand calculation) | Exp. unpriced extras | Found: copies | wasted bytes | est. monthly waste | unpriced | Match? |
+|---|---|---|---|---|---|---|---|---|---|---|
+| D1 (A) | `SYN_RPT_dup1_a.bin`, `_b`, `_c` (1 GiB each; AWS, Azure, Google Cloud) | 3 | 2,147,483,648 | 1 GiB x 0.024 + 1 GiB x 0.023 = 0.047000 | 0 | | | | | |
+| D2 (A) | `SYN_RPT_dup2_a.csv`, `_b` (1 MiB each, AWS us-east-1) | 2 | 1,048,576 | (1/1024) x 0.023 = 0.0000224609, rounded 0.000022 | 0 | | | | | |
+| D3 (B) | `SYN_RPT_dup3_a.bin`, `_b` (512 MiB each; the extra has no location) | 2 | 536,870,912 | 0.000000 (no price for the extra) | 1 | | | | | |
+
+**T9b. Files that must NOT be reported (false-positive traps)**
+
+| Trap | Files | Why it is not a duplicate group | In a reported group? (yes / no; expected no) |
+|---|---|---|---|
+| near-duplicate | `SYN_RPT_near_a.bin`, `SYN_RPT_near_b.bin` | same size, different content (different SHA-256) | |
+| one copy deleted | `SYN_RPT_deldup_a.bin`, `SYN_RPT_deldup_b.bin` | only one live copy remains | |
+| same content, two owners | `SYN_RPT_cross_a.bin` (A), `SYN_RPT_cross_b.bin` (B) | duplicates are searched within one owner | |
+| no hash | `SYN_RPT_nohash_a.bin`, `SYN_RPT_nohash_b.bin` | a legacy row without a hash cannot be grouped | |
+
+**T9c. Totals**
+
+| Measure | Expected | Your run |
+|---|---|---|
+| Sample groups found (owners A and B) | 3 | |
+| Expected groups missing | 0 | |
+| False positives (sample files in a group that should not be) | 0 | |
+| Owner A's report: groups / Owner B's report: groups | 2 / 1 | |
+| `GET /reports/duplicates` as a new USER who owns no files | 0 groups | |
+| `sql\reports.sql` first query: rows for the three sample owners' groups | 3 | |
+
+### T10. Cold-file thresholds against the seeded data (chunk 6)
+A file is cold when it has been idle **more than** `idle_days` AND has **fewer than** `max_accesses` successful
+downloads in the last `window_days` days (defaults 90, 3, 365). Idle is counted from the last successful download,
+or from upload if it was never downloaded. File names below drop the `SYN_RPT_` prefix. Expected sets are from the
+answer key and the boundary design (`app/reports/sample_data.py`), not results.
+
+| Setting | Expected, owner A | Expected, owner B | Your run, A | Your run, B | Match? |
+|---|---|---|---|---|---|
+| defaults (90, 3, 365) | cold1.pdf, cold2.pdf, cold3.pdf, edge91.bin | cold4.zip | | | |
+| `max_accesses=10` | defaults + warm.xlsx | cold4.zip | | | |
+| `idle_days=60` | defaults + edge90.bin | cold4.zip | | | |
+| `idle_days=89` | defaults + edge90.bin | cold4.zip | | | |
+| `idle_days=90` | defaults (edge90.bin is idle exactly 90, not more) | cold4.zip | | | |
+| `idle_days=250` | cold1.pdf | none | | | |
+| `max_accesses=1` | cold2.pdf (a file with one download is not "fewer than 1") | none | | | |
+| `window_days=90` | defaults + warm.xlsx | cold4.zip | | | |
+
+Evidence fields to spot-check for `cold1.pdf` (owner A): idle days 300, downloads in the last 30 days 0, downloads in
+the window 1, AWS / ap-south-1, class COOL (provider's own name STANDARD_IA), label `candidate for archival review`.
+`cold2.pdf`: never downloaded, idle 200 counted from upload. `cold3.pdf`: a failed and a denied download yesterday do
+not count, idle 220.
+
+| Evidence field (expected) | Your run |
+|---|---|
+| cold1: idle 300, 30-day 0, window 1, AWS/ap-south-1 COOL (STANDARD_IA) | |
+| cold2: last access empty, idle 200 | |
+| cold3: idle 220, 30-day 0 | |
+| cold4 (owner B): window downloads 1 (the one 400 days ago is outside 365) | |
+| Not listed in any run: hot1.docx, new.txt, delcold.pdf (deleted); warm.xlsx and edge90.bin not in the default run | |
+
+### T11. Tests added in chunks 6 and 7
+"Collected" is filled from the section 2.5 command, not typed.
+
+| Behaviour proved | Test file | Collected | Your run: passed / failed |
+|---|---|---|---|
+| Report arithmetic by hand, rounding, unpriced extras, thresholds precedence, wording, limits stated | `tests/unit/test_reports_logic.py` | | |
+| Report endpoints: who sees what, thresholds reach the query, 422 on bad input, read-only (405, no data change) | `tests/unit/test_api_reports.py` | | |
+| File list and stored placement endpoints (own files only, deleted hidden, 403 for another user, 410 deleted, read-only) | `tests/unit/test_api_file_views.py` | | |
+| Demo helpers (PDF is valid, tables, checks, role change refused for non-demo accounts, http-only client) | `tests/unit/test_demo_helpers.py` | | |
+| Report SQL on real Oracle against the synthetic sample (below) | `tests/integration/test_oracle_reports.py` | | |
+| File list and placement SQL on real Oracle | `tests/integration/test_oracle_file_views.py` | | |
+
+**Oracle integration tests for the report SQL** (`pytest tests/integration/test_oracle_reports.py -v`; each must pass).
+
+| Test | What it proves | Your run |
+|---|---|---|
+| `test_every_seeded_duplicate_group_is_found_with_the_right_members` | D1, D2, D3 found; members and wasted bytes as in T9a | |
+| `test_no_false_positives_in_duplicates` | exactly D1, D2 and D3; none of the T9b traps | |
+| `test_all_owners_view_never_merges_the_same_content_of_two_owners` | the all-owners view still groups per owner | |
+| `test_the_first_copy_is_the_oldest_one_and_is_marked_original` | original = oldest upload | |
+| `test_duplicate_money_matches_a_hand_calculation_from_the_price_table` | waste = bytes / 2^30 x price of each extra | |
+| `test_an_extra_copy_with_no_location_is_counted_but_flagged_unpriced` | bytes counted, $0, flagged | |
+| `test_every_seeded_cold_file_is_found_and_no_other` | exact cold sets for owners A and B | |
+| `test_cold_evidence_is_correct_for_known_files` | idle days, windows, provider, class, never-downloaded | |
+| `test_thresholds_change_the_result_as_expected` | the T10 rows | |
+| `test_the_idle_boundary_is_strict_more_than` | idle 91 listed, idle 90 not | |
+| `test_a_shorter_window_forgets_older_downloads` | `window_days=90` adds warm.xlsx | |
+| `test_deleted_and_young_and_busy_files_are_never_cold` | the cold traps | |
+| `test_running_the_reports_changes_no_data` | row counts unchanged | |
+| `test_http_user_sees_only_own_files_and_auditor_sees_the_sample` | scope per role over HTTP | |
+
+### T12. One run of `scripts\demo.py` (chunk 7)
+Run section 2.12 once on a clean start and fill the header, then the check table from the printed `[PASS]` / `[FAIL]` lines.
+
+| Item | Your value |
+|---|---|
+| Date and time | |
+| Git commit (`git rev-parse --short HEAD`) | |
+| Command | `.\.venv\Scripts\python.exe scripts\demo.py` |
+| API already running, or started by the script? | |
+| Final line `RESULT: N of N checks passed` | |
+| Exit code (`$LASTEXITCODE`) | |
+| Output saved as | `test-results\demo.txt` |
+
+| # | Check printed by the script (expected PASS with the default options) | Your run |
+|---|---|---|
+| 1 | GET /health reports the database is up | |
+| 2 | demo user logs in with role USER | |
+| 3 | demo auditor logs in with role AUDITOR | |
+| 4 | selection endpoint answers | |
+| 5 | upload accepted (HTTP 201) | |
+| 6 | upload chose the same winner as the dry run | |
+| 7 | GET /files/{id}/placement returns the explanation saved in the database | |
+| 8 | stored object is NOT the PDF (no %PDF header, no marker text) | |
+| 9 | download returns exactly the uploaded bytes | |
+| 10 | flipping ONE byte of the stored object is detected (HTTP 502) | |
+| 11 | after restoring the byte the download works again | |
+| 12 | duplicate report finds the demo duplicate | |
+| 13 | cold report lists exactly the known cold sample files | |
+| 14 | a stricter threshold (idle_days=250) shrinks the list | |
+| 15 | USER tries to register a provider: refused (403) | |
+| 16 | USER tries to read the audit trail: refused (403) | |
+| 17 | AUDITOR tries to register a provider: refused (403) | |
+| 18 | AUDITOR tries to download the user's file: refused (403) | |
+| 19 | AUDITOR may read the audit trail (allowed, 200) | |
+| 20 | no token at all: 401 | |
+| 21 | delete the first demo file (key erased, object removed) | |
+| 22 | delete the second demo file | |
+
+With `--no-sample` checks 13 and 14 are not printed; with `--keep` checks 21 and 22 are not printed. After the run, in SQL*Plus,
+`@sql\demo_queries.sql` (read-only) shows the database side of each section (Q1 to Q10).
+
+### T13. Plans of the report queries (optional; section 2.13)
+
+| Query | Rows in `files` / `access_logs` | Operation on `files` | Operation on `access_logs` | Cost | Buffers | Notes |
+|---|---|---|---|---|---|---|
+| R1 duplicates | | | n/a | | | |
+| R2 cold files | | | | | | |
+
+What changed in the schema, indexes and data in chunks 6 and 7: **nothing in the tables, columns, constraints,
+indexes, views or pricing data.** `git diff afc53b3 -- sql/schema.sql sql/indexes.sql sql/indexes_access_logs.sql sql/views.sql sql/seed_data.sql`
+prints nothing (rerun it to check). New SQL files only: `sql/reports.sql`, `sql/seed_reports_config.sql` (optional rows
+`cold.max_accesses` and `cold.window_days` in `system_config`; the existing `cold.idle_days` is read too),
+`sql/demo_queries.sql` and `sql/explain_reports.sql`. The report queries use the existing indexes
+(`ix_files_sha256`, `ix_files_owner_time`, `ix_logs_file_time`) only if the optimiser chooses to; whether it does is
+exactly what T13 will show.
+
 ### T8. Unresolved items (fill after your runs)
 
 | ID | Description | Evidence (file and line of output) | Status |
@@ -362,8 +589,10 @@ repeatable but not part of the normal suite.
 | Auth and RBAC (chunk 2) | 5 (roles always allowed, SQL built by string, JWT signature unchecked, expiry unchecked, denial not audited) | 5 of 5 |
 | Selection engine (chunk 3) | 8 (zero-range guard, direction, boundary, tie-break order twice, a cost term, size filter, weight normalisation) | 8 of 8 (one escaped the first time and its test was strengthened) |
 | Files and encryption (chunk 4) | 16 (see `04-storage-encryption.md`) | 16 of 16 (two escaped the first time and tests were added) |
+| Report SQL (chunk 6) | 6 (a single file counted as a duplicate group; deleted files counted; owners merged; idle `>=` instead of `>`; failed downloads counted as access; access limit `<=` instead of `<`) | 6 of 6 (one escaped the first time because the tests only ran per owner; an all-owners test was added) |
 
 ## 5. Evidence files to keep with the submission
 
 `sql\install_fresh.log`, `sql\demo_transactions.log`, `sql\demo_constraint_failures.log`, `sql\explain_100k.log`,
-`sql\explain_10k.log` (your run), `test-results\*.txt`, `docs\03-review-package.md`.
+`sql\explain_10k.log` (your run), `sql\explain_reports.log` (optional), `test-results\*.txt` (including `demo.txt`),
+`docs\03-review-package.md`.

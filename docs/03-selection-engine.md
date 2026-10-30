@@ -1,7 +1,7 @@
 # Chunk 3: Provider registry and selection engine
 
 Status: built and tested. **275 unit tests pass; 29 integration tests pass against Oracle 26ai Free**
-(run at build time with the project's `.env`). Every price, score and latency in this chapter is
+(run at build time of chunk 3 with the project's `.env`; later chunks added tests, so current totals differ, see `05-test-report.md`). Every price, score and latency in this chapter is
 **ILLUSTRATIVE**: invented simulation values, not vendor data and not measurements.
 
 ## 1. What was built
