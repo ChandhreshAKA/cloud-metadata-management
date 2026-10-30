@@ -29,7 +29,7 @@ Companion documents: `01-schema-audit.md` and `01-data-dictionary.md` (database)
 | M9 | Audit and access logging | **BUILT** |
 | M10 | Monitoring and analytics | **DESIGNED, NOT BUILT** (SQL views exist; no module, report or dashboard) |
 | M11 | Duplicate detection and optimisation | **DESIGNED, NOT BUILT** (one SQL view exists; no module, no recommendations) |
-| M12 | API and dashboard | **PARTLY BUILT**: API and its OpenAPI page (`/docs`) are built; the **dashboard and the scripted demo are DESIGNED, NOT BUILT** |
+| M12 | API and dashboard | **BUILT** (small): the API and its OpenAPI page, the scripted demo `scripts/demo.py`, and one optional Streamlit page `dashboard.py`; **monitoring pages and charts are DESIGNED, NOT BUILT** |
 
 ---
 
@@ -75,7 +75,7 @@ failover, and no duplicate or waste reporting exist beyond the underlying SQL vi
 ```mermaid
 flowchart TB
     subgraph Client
-        UI["Streamlit dashboard<br/>(DESIGNED, NOT BUILT)"]
+        UI["Streamlit page (optional, one page)<br/>(BUILT, small)"]
         DOCS["OpenAPI page /docs and PowerShell<br/>(BUILT)"]
     end
     subgraph Backend["FastAPI backend (BUILT)"]
@@ -219,7 +219,7 @@ payback, approval, and any migration. The `recommendations` table is unused.
 | M9 | Audit and access log | events from all services | append-only inserts | audit and access history | `audit_events`, `access_logs` | **BUILT** |
 | M10 | Monitoring | logs, files, prices | aggregations | KPI tables, dashboard data | views only | **DESIGNED, NOT BUILT** |
 | M11 | Duplicates and optimisation | hashes, access stats, prices | grouping, cold-file rules | findings (read-only) | `files`, `access_logs`, `storage_locations`, `provider_pricing` | **PARTLY BUILT** (reports built in chunk 6; savings, recommendations and the `recommendations` table are not used) |
-| M12 | API and dashboard | HTTP requests | FastAPI routes; Streamlit pages (planned) | OpenAPI page works; dashboard and scripted demo do not exist | none | **PARTLY BUILT** |
+| M12 | API and dashboard | HTTP requests | FastAPI routes; one optional Streamlit page | OpenAPI page, `scripts/demo.py` and `dashboard.py` work; no monitoring pages or charts | none | **BUILT** (small) |
 
 ## F. Technology stack
 
@@ -233,7 +233,7 @@ payback, approval, and any migration. The `recommendations` table is unused.
 | `cryptography` | **yes** | AES-256-GCM; key management is simulated |
 | `python-dotenv`, `uvicorn` | **yes** | `.env` loading; the server |
 | `pytest`, `pytest-cov`, `httpx`, `ruff` | **yes** | tests, coverage, lint and format |
-| Streamlit, pandas, Plotly | **no** | planned for the dashboard; listed (commented out) in `requirements-optional.txt`, not installed or used |
+| Streamlit (with pandas, requests) | **optional** | used only by `dashboard.py`; pinned in `requirements-optional.txt`, installed in a separate virtual environment, not needed by the API, tests or demo. Plotly is not used |
 | Docker, CI pipeline, mypy | **no** | not part of the project |
 
 Simulated versus real: the metadata, auth, RBAC, audit, selection logic, encryption algorithm and replication
@@ -256,8 +256,8 @@ storage itself are simulated. See `06-limitations-and-objectives.md`.
 | FR-10 | log authentication events, state changes and file access | **Met**, except requests with an invalid token are not audited |
 | FR-11 | duplicate detection | **Met** (chunk 6, read-only report) |
 | FR-12 | cold-file detection and recommendations | **Partly met**: detection yes (chunk 6), recommendations no |
-| FR-13 | dashboard | **Not built** |
-| FR-14 | documented API and a scripted demo | **Partly met**: OpenAPI page yes, scripted demo no |
+| FR-13 | dashboard | **Partly met**: one optional Streamlit page (`dashboard.py`: files, placement, duplicate and cold tables); no charts or monitoring pages |
+| FR-14 | documented API and a scripted demo | **Met**: OpenAPI page and `scripts/demo.py` |
 | FR-15 | transactions, savepoints, no orphan metadata | **Met** |
 | NFR-1 | integrity: 3NF, PK/FK/UNIQUE/NOT NULL/CHECK | **Met** |
 | NFR-2 | security: bound SQL, no secrets in the repository, least privilege | **Met**; not built: lockout, rate limiting, TLS |
@@ -305,7 +305,7 @@ requirements*.txt, pyproject.toml, .env.example, README.md
 | 4 | simulated storage, encryption, upload, download, delete | **Done** |
 | 5 | replication and failover | **Not built** |
 | 6 | duplicate and cold-file reports | **Built** (`09-reports.md`) |
-| 7 | demo script and dashboard | **Not built** |
+| 7 | demo script and dashboard | **Built** (command-line demo, live SQL, one optional Streamlit page; see README) |
 | 8 | test report, limitations, objective map, outline | **This documentation set** (results tables left for you to fill) |
 
 ## J. Decisions that differ from the Chunk 0 design
@@ -316,4 +316,4 @@ requirements*.txt, pyproject.toml, .env.example, README.md
 * **Size fit is a hard filter**, not a scored criterion. **All-equal metrics score 1.0** (no division by zero).
 * **Upload uses a compensating delete**; the promised orphan sweep was not built.
 * **Plaintext hashes reveal file existence** (limitation L-1): `content_sha256` is a hash of the plaintext.
-* **File upload takes the raw body** (no multipart library); the dashboard dependencies were never installed.
+* **File upload takes the raw body** (no multipart library); the optional dashboard's dependencies are kept out of the main environment.

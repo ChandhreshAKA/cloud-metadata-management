@@ -27,3 +27,5 @@ extend-immutable-calls = ["fastapi.Depends", "app.auth.deps.require_permission",
 "tests/**" = ["S105", "S106", "S608", "S311", "E501"]
 "scripts/worked_example.py" = ["E501"]
 "scripts/make_review_package.py" = ["E501"]  # prints wide tables; long literals are intentional
+"scripts/demo.py" = ["E501"]  # prints wide tables and long one-line SQL for readability
+"dashboard.py" = ["E501"]  # optional Streamlit page; one-line table builders

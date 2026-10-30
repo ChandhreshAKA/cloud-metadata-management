@@ -1,7 +1,6 @@
 # Limitations and objective-to-evidence map
 
-State of the project: chunks 1 to 4 and 6 are built and tested. Chunks 5 and 7 (replication and failover, demo script and
-dashboard) were **not built**. Nothing below describes an unbuilt feature as working.
+State of the project: chunks 1 to 4, 6 and 7 are built and tested. Chunk 5 (replication and failover) was **not built**. Nothing below describes an unbuilt feature as working.
 
 ## 1. Objective-to-evidence map
 
@@ -54,7 +53,7 @@ waste from illustrative prices) and a read-only **cold-file report** (idle time 
 labelled "candidate for archival review"). These identify waste; they change nothing.
 
 **Still not implemented:** a monitoring module, usage and performance reporting, archival or migration
-recommendations with saving and payback, a migration workflow, and a dashboard.
+recommendations with saving and payback, a migration workflow, and monitoring pages or charts (only a one-page optional view exists).
 
 Underlying groundwork:
 * `access_logs` rows (with latency and outcome) are written by upload, download and delete.
@@ -95,7 +94,7 @@ SELECT region_id, source, COUNT(*) FROM performance_measurements GROUP BY region
 | Near-duplicate and cross-owner duplicate detection | exact duplicates within one owner are reported (chunk 6); a slightly edited copy is not found |
 | Migration or archival recommendations, savings and payback, migration workflow | none; cold files are only listed as candidates (chunk 6) |
 | Monitoring of usage, access frequency, costs, performance | none |
-| Dashboard (Streamlit, charts) and the scripted demo | the API and the interactive `/docs` page are the interface; the demo is done by hand (see `07-report-outline-and-demo.md`) |
+| Monitoring pages and charts | only a one-page optional Streamlit view of files, placement and the two reports (`dashboard.py`); the scripted demo is `scripts/demo.py` |
 | Real cloud adapters | one simulated adapter only |
 | TLS / HTTPS | not configured |
 | Key rotation | a file encrypted under another master-key version cannot be decrypted |

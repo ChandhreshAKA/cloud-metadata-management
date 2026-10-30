@@ -94,6 +94,26 @@ async def upload(
     return service.upload(user, params, data, client_ip(request))
 
 
+@router.get("")
+def list_my_files(
+    user: UserRecord = Depends(require_permission(Permission.FILE_READ_OWN)),
+    service: FileService = Depends(get_file_service),
+) -> dict[str, Any]:
+    """Your own files (metadata only), newest first. Deleted files are not listed."""
+    return service.list_files(user)
+
+
+@router.get("/{file_id}/placement")
+def placement(
+    file_id: int,
+    request: Request,
+    user: UserRecord = Depends(require_permission(Permission.FILE_READ_OWN)),
+    service: FileService = Depends(get_file_service),
+) -> dict[str, Any]:
+    """Why one of your files is stored where it is: the saved ranking and explanation."""
+    return service.placement(user, file_id, client_ip(request))
+
+
 @router.get("/{file_id}/download")
 def download(
     file_id: int,

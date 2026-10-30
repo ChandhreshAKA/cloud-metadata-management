@@ -145,6 +145,14 @@ class FileRepository(Protocol):
 
     def get_for_access(self, file_id: int) -> StoredFile | None: ...
 
+    def list_for_owner(self, owner_id: int) -> list[dict[str, Any]]:
+        """The owner's files that are not deleted, newest first, with their primary location."""
+        ...
+
+    def get_decision(self, file_id: int) -> dict[str, Any] | None:
+        """The latest stored selection decision for a file with its candidates, or None."""
+        ...
+
     def mark_deleted(self, file_id: int) -> bool:
         """Set status DELETED. False if it was already deleted (or does not exist)."""
         ...

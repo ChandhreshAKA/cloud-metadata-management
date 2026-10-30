@@ -275,6 +275,49 @@ class _FakeFiles:
             ciphertext_sha256=enc["ciphertext_sha256"] if enc else None,
         )  # fmt: skip
 
+    def list_for_owner(self, owner_id: int) -> list[dict[str, Any]]:
+        rows = []
+        for f in sorted(self._s["files"].values(), key=lambda x: -x["file_id"]):
+            if f["owner_id"] != owner_id or f["status"] == "DELETED":
+                continue
+            loc = next((x for x in self._s["locations"].values() if x["file_id"] == f["file_id"]), None)
+            region = self._s["regions"].get(loc["region_id"]) if loc else None
+            provider = self._s["providers"].get(region.provider_id) if region else None
+            rows.append({
+                "file_id": f["file_id"], "file_name": f["file_name"],
+                "file_size_bytes": f["file_size_bytes"], "file_type": f["file_type"],
+                "security_level": f["security_level"], "status": f["status"],
+                "content_sha256": f["content_sha256"], "uploaded_at": "2026-01-01T00:00:00",
+                "provider_code": provider.provider_code if provider else None,
+                "region_code": region.region_code if region else None,
+                "tier_code": loc["tier_code"] if loc else None,
+            })  # fmt: skip
+        return rows
+
+    def get_decision(self, file_id: int) -> dict[str, Any] | None:
+        decisions = [d for d in self._s["decisions"].values() if d["file_id"] == file_id]
+        if not decisions:
+            return None
+        d = max(decisions, key=lambda x: x["decision_id"])
+        candidates = []
+        for c in self._s["candidates"]:
+            if c["decision_id"] != d["decision_id"]:
+                continue
+            region = self._s["regions"][c["region_id"]]
+            provider = self._s["providers"][region.provider_id]
+            candidates.append({
+                "region_id": c["region_id"], "provider_code": provider.provider_code,
+                "region_code": region.region_code, "excluded_reason": c["excluded_reason"],
+                "composite": None if c["total_score"] is None else str(c["total_score"]),
+                "raw": c["raw"],
+            })  # fmt: skip
+        candidates.sort(key=lambda c: (c["composite"] is None, -(Decimal(c["composite"] or 0))))
+        return {
+            "decision_id": d["decision_id"], "preset": d["profile_name"], "weights": d["weights"],
+            "explanation": d["explanation"], "decided_at": "2026-01-01T00:00:00",
+            "chosen_region_id": d["chosen_region_id"], "candidates": candidates,
+        }  # fmt: skip
+
     def mark_deleted(self, file_id: int) -> bool:
         f = self._s["files"].get(file_id)
         if f is None or f["status"] == "DELETED":

@@ -5,8 +5,8 @@
 **Title:** Centralised metadata management and intelligent provider selection for multi-cloud storage.
 **Scope statement (put it on page 1):** the database, authentication and access control, the selection engine and
 encrypted upload/download are built and tested against a real Oracle database. Cloud storage, prices, latency and
-the key-management service are **simulated**. Replication and failover, monitoring and optimisation (objective 4),
-and the dashboard are **designed but not built**.
+the key-management service are **simulated**. Replication and failover, and monitoring and recommendations (objective 4),
+are **designed but not built**. The demo is scripted (`scripts/demo.py`) and there is one optional Streamlit page.
 
 ### 1. Problem statement (about 5 lines)
 Files kept across AWS, Azure and Google Cloud have fragmented metadata; providers are hard to compare; placement is
@@ -28,7 +28,7 @@ its provider fails; and duplicate or cold data wastes money. Detail: `00-design.
 ### 3. Requirements and how they were met
 Functional: register/login, roles, provider registry, upload with explanation, weighted selection, download with
 integrity check, soft delete with key destruction, transactions, duplicate-file and cold-file reports (read-only, chunk 6): **met**. Replication, recommendations,
-dashboard, scripted demo: **not built**. Non-functional: integrity, security (parameterised SQL, secrets
+monitoring pages: **not built**. Non-functional: integrity, security (parameterised SQL, secrets
 outside the repository), performance (indexes), explainability, testability, honesty about simulated data: **met**;
 TLS, lockout and rate limiting: **not built**. Table: `00-design.md` section G.
 
@@ -62,7 +62,7 @@ partially or not covered (objective 4 **not covered**): `06-limitations-and-obje
 ### 10. Conclusion and future work
 Built a verified metadata core with explainable selection and encrypted storage. Future work, in order of value:
 replication and failover; migration recommendations with saving and payback built on the chunk 6 reports;
-real cloud adapters and a real KMS; TLS; key rotation; a dashboard.
+real cloud adapters and a real KMS; TLS; key rotation; monitoring pages and charts.
 
 **Evidence to attach:** `sql/install_fresh.log`, `sql/demo_constraint_failures.log`, `sql/demo_transactions.log`,
 `sql/explain_100k.log` (and `explain_10k.log` once you have run it), `test-results/*.txt`, `docs/03-review-package.md`.
@@ -108,7 +108,7 @@ upload was tested from PowerShell and Python, **not** by clicking in the `/docs`
 | 14 | Register a second user and try to download the file | ownership check | 403, `DENIED` access-log row, `ACCESS_DENIED` audit |
 | 15 | `pytest tests/unit/test_files_api.py -v -k "forced"` | forced storage failure leaves no metadata; forced database failure leaves no object | all pass |
 | 16 | Delete without, then with `confirm=true`; try to download | crypto-erase: the key row is gone; the object is removed | 400, then 200, then 410 |
-| 17 | Close with `06-limitations-and-objectives.md` | what is simulated; replication, monitoring and the dashboard are **not built**; the objective map | say it before you are asked |
+| 17 | Close with `06-limitations-and-objectives.md` | what is simulated; replication, monitoring pages and recommendations are **not built**; the objective map | say it before you are asked |
 
 ### PowerShell for steps 9, 10, 12, 13, 14, 16
 ```powershell
@@ -164,7 +164,7 @@ SELECT COUNT(*) AS key_rows_left FROM file_encryption WHERE file_id = <id>;
 ```
 
 ### Do not claim in the review
-Replication, failover, migration recommendations, monitoring, a dashboard, a scripted demo,
+Replication, failover, migration recommendations, monitoring pages or charts,
 real cloud storage, a real KMS, TLS, or that the prices and latencies are real. If asked, point to
 `06-limitations-and-objectives.md`.
 

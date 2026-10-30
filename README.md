@@ -3,7 +3,7 @@
 Course project (DBMS): a central Oracle metadata store plus an API for authentication, role-based
 access control and auditing of multi-cloud file storage. Providers are **simulated** (see Status).
 
-## Status (chunks 1 to 4 and 6 built; documentation set complete; chunks 5 and 7 not built)
+## Status (chunks 1 to 4, 6 and 7 built; documentation set complete; chunk 5 not built)
 
 | Area | State |
 |---|---|
@@ -12,8 +12,9 @@ access control and auditing of multi-cloud file storage. Providers are **simulat
 | Provider registry (admin-only writes) and the selection engine, dry-run endpoints, worked example, baselines | **Built and verified.** 275 unit tests; 29 integration tests pass against Oracle (run at build time). See `docs/03-selection-engine.md` |
 | Encrypted upload, download and delete to **SIMULATED** local-folder storage (AES-256-GCM, selection engine called on every upload) | **Built and verified.** 370 unit tests; 40 integration tests pass against Oracle; real-HTTP end-to-end run done. See `docs/04-storage-encryption.md` |
 | Read-only duplicate-file and cold-file reports (Chunk 6) with a seeded **synthetic** sample | **Built and verified.** 402 unit tests; 54 integration tests pass against Oracle; six deliberate SQL bugs all caught. See `docs/09-reports.md` |
+| Scripted command-line demo (`scripts/demo.py`), live SQL (`sql/demo_queries.sql`), file list and stored-placement endpoints, optional one-page Streamlit dashboard (Chunk 7) | **Built and verified.** Demo: 22 of 22 checks pass against real Oracle and a real API; dashboard tested headlessly against the real API. See the sections below |
 | Test report, limitations, objective map, report outline, demo checklist | **Written** (`docs/05` to `07`); the results tables are for you to fill from your own runs |
-| Monitoring, recommendations, savings and migration (objective 4), dashboard, scripted demo | **Not built** |
+| Monitoring pages, charts, recommendations, savings and migration (objective 4) | **Not built** |
 | Replication, failover, migration workflow, real cloud adapters, TLS, key rotation, orphan sweep | **Not built** |
 | Account lockout, password reset, token revocation, rate limiting | Deliberately not built |
 
@@ -122,6 +123,67 @@ Invoke-RestMethod -Uri http://127.0.0.1:8000/protected/files -Headers $auth     
 Invoke-RestMethod -Uri http://127.0.0.1:8000/protected/providers -Headers $auth      # USER: 403 and an ACCESS_DENIED audit row
 ```
 
+## Run the demo (no manual steps)
+
+One command runs the whole story against the real API and the real Oracle database. It starts the API
+itself if none is listening, and stops it at the end. Output is labelled **SIMULATION MODE**.
+
+```powershell
+cd C:\dbmsproject
+.\.venv\Scripts\python.exe scripts\demo.py
+```
+
+| Section | What it does |
+|---|---|
+| 1 Setup | health check, mode banner |
+| 2 Accounts | registers or logs in `demo_user@example.test` and `demo_auditor@example.test` (synthetic) |
+| 3 Selection | ranked providers, rejected regions and the explanation (dry run) |
+| 4 Upload | uploads a generated PDF; shows the chosen provider, hashes, encryption and the saved placement |
+| 5 Database | the stored `files`, `file_encryption`, location and decision rows; the encrypted object's path, size and first bytes |
+| 6 Download | downloads, checks the SHA-256, flips one stored byte to prove tampering is caught (502), restores it |
+| 7 Access log | the access-log rows those steps wrote |
+| 8 Reports | uploads the same PDF again (a real duplicate), runs the duplicate and cold-file reports, shows a synthetic cold-file sample |
+| 9 RBAC | a USER and an AUDITOR attempt actions they may not do (403), and the audit rows that recorded it |
+| 10 Clean up | deletes the demo files (key erased) and the synthetic sample |
+
+Options: `--pause` (wait for Enter between sections, useful when running the SQL below), `--keep` (leave
+the demo files and the sample in place), `--no-sample` (skip the synthetic sample), `--cleanup-only`
+(remove what `--keep` left), `--base-url http://127.0.0.1:8001` (another port). It exits with a non-zero
+code if any check fails and prints `RESULT: N of N checks passed`.
+
+The script performs every action through the HTTP API. It reads the database directly only with `SELECT`
+(to show what changed). Its only direct writes are labelled in the output: it sets the role of its own
+synthetic `demo_*` accounts, and it seeds and removes the synthetic report sample
+(`app/reports/sample_data.py`).
+
+### Live SQL for the review
+
+`sql/demo_queries.sql` has one read-only block per section (Q1 to Q10). Run the demo with
+`--pause --keep`, and after each section run the matching block:
+
+```powershell
+sqlplus cloudmeta@localhost:1521/FREEPDB1
+SQL> @sql/demo_queries.sql
+```
+
+## Optional dashboard (Streamlit, one page)
+
+`dashboard.py` (83 lines) is a thin screen over the API: log in, your files, the selected provider with its
+saved explanation and ranking, and the duplicate and cold-file tables. It computes nothing itself. It is
+**optional**: the API, the tests and the demo do not need it. Install Streamlit in a separate virtual
+environment (do not add it to the project's pinned requirements unless you want it there):
+
+```powershell
+python -m venv .venv-dash
+.\.venv-dash\Scripts\python.exe -m pip install -r requirements-optional.txt
+# API running in another window, then:
+.\.venv-dash\Scripts\python.exe -m streamlit run dashboard.py
+```
+
+It uses `API_URL` (default `http://127.0.0.1:8000`). Log in as a normal USER (for example
+`demo_user@example.test` after the demo created it; the password is `demo-password-123` unless you set
+`DEMO_PASSWORD`). ADMIN and AUDITOR accounts have no own files, so the file tabs show a message for them.
+
 ## Endpoints
 
 | Method and path | Who | Purpose |
@@ -142,6 +204,8 @@ Invoke-RestMethod -Uri http://127.0.0.1:8000/protected/providers -Headers $auth 
 | `POST /files?file_name=..&security_level=..` | USER | upload (raw body): select provider, encrypt, store, record metadata |
 | `GET /files/{id}/download` | USER (owner) | fetch, decrypt, verify SHA-256, log latency |
 | `DELETE /files/{id}?confirm=true` | USER (owner) | delete with explicit confirmation; erases the key |
+| `GET /files` | USER | your own files (metadata only), newest first |
+| `GET /files/{id}/placement` | USER (owner) | why the file is where it is: the saved ranking and explanation |
 | `GET /reports/duplicates` | any logged-in role | read-only: groups of identical files, wasted bytes, estimated monthly waste (USER: own files; ADMIN, AUDITOR: all) |
 | `GET /reports/cold-files?idle_days=..&max_accesses=..&window_days=..` | any logged-in role | read-only: "candidate for archival review" list with evidence |
 
@@ -235,7 +299,12 @@ characters`, generate one with the command in Setup.
 
 **3. Port already in use** (`[WinError 10048]` when starting uvicorn). Use another port
 (`--port 8001`) or find the process: `Get-NetTCPConnection -LocalPort 8000 | Select OwningProcess`
-then `Stop-Process -Id <id>`.
+then `Stop-Process -Id <id>`. For the demo, point it at the other port with
+`scripts\demo.py --base-url http://127.0.0.1:8001`; if the demo says the API did not start, read
+`demo_server.log` in the project folder.
+
+The demo reports the same three problems in its own words: `Cannot connect to Oracle (...)` (item 1),
+`Environment variable ORACLE_... is not set` (item 2) and `The API did not start` (item 3).
 
 ## Documentation map
 
@@ -248,7 +317,8 @@ then `Stop-Process -Id <id>`.
 | `docs/05-test-report.md` | exact commands and **results tables for you to fill from your own runs** |
 | `docs/06-limitations-and-objectives.md` | what is simulated, what is not implemented, objective-to-evidence map |
 | `docs/07-report-outline-and-demo.md` | one-page report outline and the demo checklist |
-| `docs/08-demo-runbook.md` | every demo command in order |
+| `docs/08-demo-runbook.md` | every manual demo command in order (the automated demo is `scripts/demo.py`) |
+| `sql/demo_queries.sql` | read-only SQL to run live after each demo step |
 | `docs/09-reports.md` | Chunk 6: duplicate and cold-file reports, synthetic sample, commands, verification results |
 
 **Project status in one line:** database, auth and RBAC, provider selection, and encrypted upload/download to simulated storage are built and tested. Read-only duplicate and cold-file reports are built too. Replication and failover, monitoring and recommendations (objective 4) and the dashboard are **not built**.
