@@ -4,7 +4,7 @@
 
 No database and no network: it runs the pure engine on the illustrative data in
 app/selection/example.py. ALL PRICES, SCORES AND LATENCIES ARE ILLUSTRATIVE.
-"""
+""" 
 
 from __future__ import annotations
 
