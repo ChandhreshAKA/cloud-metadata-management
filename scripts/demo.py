@@ -17,7 +17,6 @@ and stops it at the end.
 
 Live SQL for each section is in sql/demo_queries.sql (Q1 ... Q9).
 """
-
 from __future__ import annotations
 
 import argparse
