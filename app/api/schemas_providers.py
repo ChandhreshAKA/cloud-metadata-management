@@ -1,5 +1,5 @@
 """Request and response models for the provider registry and the selection endpoints."""
-
+ 
 from __future__ import annotations
 
 from decimal import Decimal
