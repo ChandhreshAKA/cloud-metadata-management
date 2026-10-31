@@ -22,11 +22,11 @@ deliberate-bug checks in section 4 (run by the assistant, source named).
 | Item | Command | Your value |
 |---|---|---|
 | Date of the run | | 31-10-2026|
-| Git commit | `git rev-parse --short HEAD` | |
-| Python | `.\.venv\Scripts\python.exe --version` | |
-| Oracle | `SELECT banner FROM v$version;` | |
+| Git commit | `git rev-parse --short HEAD` | b2578ab |
+| Python | `.\.venv\Scripts\python.exe --version` |Python 3.12.10 |
+| Oracle | `SELECT banner FROM v$version;` | Oracle Database 21c Express Edition Release 21.0.0.0.0 - Production (Version 21.3.0.0.0) |
 | SQL*Plus | first line printed when `sqlplus` starts | |
-| `MASTER_KEY` set in `.env`? | yes or no (never write the key here) | |
+| `MASTER_KEY` set in `.env`? | yes or no (never write the key here) |yes |
 
 ## 2. Commands
 
