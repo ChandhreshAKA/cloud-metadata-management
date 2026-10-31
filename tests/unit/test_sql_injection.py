@@ -17,9 +17,10 @@ from pathlib import Path
 import pytest
 
 from app.db.repositories.audit import OracleAuditRepository
-from app.db.repositories.users import OracleUserRepository
+from app.db.repositories.users import SqlAlchemyUserRepository
 from tests.conftest import PASSWORD
 from tests.fakes import RecordingConnection
+from tests.orm_helpers import capture_statements, sqlite_session
 
 PAYLOADS = [
     "' OR '1'='1' --",
@@ -73,29 +74,40 @@ def test_injection_string_in_a_name_is_stored_verbatim_not_executed(client, db):
 @pytest.mark.parametrize("payload", PAYLOADS)
 def test_payload_is_only_ever_a_bind_value_never_part_of_the_sql(payload):
     connection = RecordingConnection()
-    users, audit = OracleUserRepository(connection), OracleAuditRepository(connection)
-
-    users.get_by_email(payload)
-    users.get_by_id(1)
-    users.create(payload, payload, payload)
-    users.touch_last_login(1)
+    audit = OracleAuditRepository(connection)
     audit.record("LOGIN_FAILED", "FAILURE", details={"email": payload}, ip_address=payload)
-
-    assert len(connection.calls) == 5
+    assert len(connection.calls) == 1
     for sql, binds in connection.calls:
         assert payload not in sql
         assert isinstance(binds, dict)  # named binds, not string interpolation
         for name in binds:
             assert f":{name}" in sql  # every bind has a placeholder in the statement
-    assert connection.calls[0][1] == {"email": payload}
+
+
+@pytest.mark.parametrize("payload", PAYLOADS)
+def test_orm_user_repository_sends_the_payload_only_as_a_parameter(payload):
+    """The ORM users repository: statements the driver receives never contain the payload."""
+    with sqlite_session() as session:
+        repo = SqlAlchemyUserRepository(session)
+        with capture_statements(session) as seen:
+            repo.get_by_email(payload)
+            repo.get_by_id(1)
+            repo.create(payload, payload, payload)
+            repo.touch_last_login(1)
+    assert seen, "no statement captured: the test would be vacuous"
+    for statement, parameters in seen:
+        assert payload not in statement
+        assert parameters  # values travel separately from the SQL text
+    assert any(payload in str(parameters) for _, parameters in seen)
 
 
 def test_sql_text_is_identical_for_normal_and_hostile_input():
-    connection = RecordingConnection()
-    users = OracleUserRepository(connection)
-    users.get_by_email("ada@example.com")
-    users.get_by_email("' OR '1'='1")
-    assert connection.calls[0][0] == connection.calls[1][0]
+    with sqlite_session() as session:
+        users = SqlAlchemyUserRepository(session)
+        with capture_statements(session) as seen:
+            users.get_by_email("ada@example.com")
+            users.get_by_email("' OR '1'='1")
+    assert len(seen) == 2 and seen[0][0] == seen[1][0]
 
 
 # ---- layer 3: static scan of the repository modules ------------------------------------------
@@ -181,16 +193,40 @@ def _check_execute_calls(tree: ast.Module) -> list[str]:
     return problems
 
 
-@pytest.mark.parametrize("path", sorted(REPO_DIR.glob("*.py")), ids=lambda p: p.name)
+ORM_MODULES = {"users.py"}  # use the ORM: no raw SQL strings, no cursors
+
+
+@pytest.mark.parametrize(
+    "path",
+    sorted(p for p in REPO_DIR.glob("*.py") if p.name not in ORM_MODULES),
+    ids=lambda p: p.name,
+)
 def test_every_execute_call_uses_a_constant_sql_string(path):
     tree = ast.parse(path.read_text(encoding="utf-8"))
     assert _check_execute_calls(tree) == [], path.name
-    if path.name in {"users.py", "audit.py", "providers.py"}:
+    if path.name in {"audit.py", "providers.py"}:
         executes = [
             n for n in ast.walk(tree)
             if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "execute"
         ]  # fmt: skip
         assert executes, "scan found no execute() calls: the test would be vacuous"
+
+
+@pytest.mark.parametrize("name", sorted(ORM_MODULES))
+def test_orm_repository_modules_contain_no_raw_sql(name):
+    tree = ast.parse((REPO_DIR / name).read_text(encoding="utf-8"))
+    imported = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("sqlalchemy")
+        for alias in node.names
+    }
+    assert "text" not in imported and "select" in imported  # ORM constructs, never text()
+    calls = {getattr(n.func, "attr", "") for n in ast.walk(tree) if isinstance(n, ast.Call)}
+    assert "cursor" not in calls  # no direct driver cursor
+    for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):
+        if getattr(call.func, "attr", "") == "execute" and call.args:
+            assert not isinstance(call.args[0], ast.Constant)  # never a SQL string literal
 
 
 def test_scan_flags_a_helper_called_with_a_formatted_string():

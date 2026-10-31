@@ -9,20 +9,23 @@ from app.auth.deps import require_role
 from app.auth.rbac import Role
 from app.db.base import UserRecord
 from app.db.repositories.audit import encode_details
-from app.db.repositories.users import OracleUserRepository
+from app.db.repositories.users import SqlAlchemyUserRepository
 from app.main import create_app
 from tests.conftest import PASSWORD
-from tests.fakes import RecordingConnection
+from tests.orm_helpers import sqlite_session
 
 
 def test_user_row_is_converted_to_a_record():
-    connection = RecordingConnection(row=(7, "Ada", "ada@example.com", "AUDITOR", "hash", "ACTIVE"))
-    user = OracleUserRepository(connection).get_by_email("ada@example.com")
-    assert user == UserRecord(7, "Ada", "ada@example.com", "AUDITOR", "hash", "ACTIVE")
+    with sqlite_session() as session:
+        repo = SqlAlchemyUserRepository(session)
+        user_id = repo.create("Ada", "ada@example.com", "hash")
+        user = repo.get_by_email("ada@example.com")
+    assert user == UserRecord(user_id, "Ada", "ada@example.com", "USER", "hash", "ACTIVE")
 
 
 def test_no_row_means_no_user():
-    assert OracleUserRepository(RecordingConnection()).get_by_id(1) is None
+    with sqlite_session() as session:
+        assert SqlAlchemyUserRepository(session).get_by_id(1) is None
 
 
 def test_audit_details_encoding():
