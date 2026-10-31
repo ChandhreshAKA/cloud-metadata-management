@@ -1,0 +1,24 @@
+# never send secrets, history or local junk into an image
+.env
+.env.*
+!.env.example
+.git
+.github
+.venv
+.venv-dash
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.coverage
+htmlcov
+test-results
+storage_sim
+*.log
+*.pem
+*.key
+tests
+docs
+sql
+scripts
+schema.sql

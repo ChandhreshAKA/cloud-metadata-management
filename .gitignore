@@ -22,3 +22,5 @@ storage_sim/
 
 # stray Windows cache folder created by an unexpanded %SystemDrive% variable
 %SystemDrive%/
+.venv-dash/
+.venv-dash/
