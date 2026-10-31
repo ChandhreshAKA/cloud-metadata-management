@@ -21,7 +21,7 @@ deliberate-bug checks in section 4 (run by the assistant, source named).
 
 | Item | Command | Your value |
 |---|---|---|
-| Date of the run | | |
+| Date of the run | | 31-10-2026|
 | Git commit | `git rev-parse --short HEAD` | |
 | Python | `.\.venv\Scripts\python.exe --version` | |
 | Oracle | `SELECT banner FROM v$version;` | |
