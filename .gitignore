@@ -15,6 +15,7 @@ coverage.xml
 
 # logs and generated output
 *.log
+test-results/
 
 # simulated storage (chunk 4)
 storage_sim/

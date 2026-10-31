@@ -63,6 +63,32 @@ _GET_FOR_ACCESS = """
       LEFT JOIN file_encryption e ON e.file_id = f.file_id
      WHERE f.file_id = :file_id
 """
+_LIST_FOR_OWNER = """
+    SELECT f.file_id, f.file_name, f.file_size_bytes, f.file_type, f.security_level, f.status,
+           f.content_sha256, f.upload_time, p.provider_code, r.region_code, sl.tier_code
+      FROM files f
+      LEFT JOIN storage_locations sl ON sl.file_id = f.file_id AND sl.is_primary = 'Y'
+      LEFT JOIN provider_regions r ON r.region_id = sl.region_id
+      LEFT JOIN cloud_providers p ON p.provider_id = r.provider_id
+     WHERE f.owner_id = :owner_id AND f.status <> 'DELETED'
+     ORDER BY f.file_id DESC
+     FETCH FIRST 500 ROWS ONLY
+"""
+_LATEST_DECISION = """
+    SELECT decision_id, profile_name, weights_json, explanation, decided_at, chosen_region_id
+      FROM selection_decisions
+     WHERE file_id = :file_id
+     ORDER BY decision_id DESC
+     FETCH FIRST 1 ROWS ONLY
+"""
+_DECISION_CANDIDATES = """
+    SELECT c.region_id, p.provider_code, r.region_code, c.excluded_reason, c.total_score, c.raw_json
+      FROM selection_candidates c
+      JOIN provider_regions r ON r.region_id = c.region_id
+      JOIN cloud_providers p ON p.provider_id = r.provider_id
+     WHERE c.decision_id = :decision_id
+     ORDER BY c.total_score DESC NULLS LAST, c.region_id
+"""
 _MARK_DELETED = """
     UPDATE files SET status = 'DELETED', deleted_at = SYSTIMESTAMP
      WHERE file_id = :file_id AND status <> 'DELETED'
@@ -227,6 +253,42 @@ class OracleFileRepository:
             master_key_version=None if row[16] is None else int(row[16]),
             ciphertext_sha256=row[17],
         )  # fmt: skip
+
+    def list_for_owner(self, owner_id: int) -> list[dict[str, Any]]:
+        cursor = self._conn.cursor()
+        cursor.execute(_LIST_FOR_OWNER, {"owner_id": owner_id})
+        return [
+            {
+                "file_id": int(r[0]), "file_name": r[1], "file_size_bytes": int(r[2]),
+                "file_type": r[3], "security_level": r[4], "status": r[5],
+                "content_sha256": r[6], "uploaded_at": r[7].isoformat(),
+                "provider_code": r[8], "region_code": r[9], "tier_code": r[10],
+            }
+            for r in cursor.fetchall()
+        ]  # fmt: skip
+
+    def get_decision(self, file_id: int) -> dict[str, Any] | None:
+        cursor = self._conn.cursor()
+        cursor.execute(_LATEST_DECISION, {"file_id": file_id})
+        head = cursor.fetchone()
+        if head is None:
+            return None
+        decision_id = int(head[0])
+        cursor.execute(_DECISION_CANDIDATES, {"decision_id": decision_id})
+        candidates = [
+            {
+                "region_id": int(c[0]), "provider_code": c[1], "region_code": c[2],
+                "excluded_reason": c[3], "composite": None if c[4] is None else str(c[4]),
+                "raw": None if c[5] is None else json.loads(c[5]),
+            }
+            for c in cursor.fetchall()
+        ]  # fmt: skip
+        return {
+            "decision_id": decision_id, "preset": head[1], "weights": json.loads(head[2]),
+            "explanation": head[3], "decided_at": head[4].isoformat(),
+            "chosen_region_id": None if head[5] is None else int(head[5]),
+            "candidates": candidates,
+        }  # fmt: skip
 
     def mark_deleted(self, file_id: int) -> bool:
         cursor = self._conn.cursor()

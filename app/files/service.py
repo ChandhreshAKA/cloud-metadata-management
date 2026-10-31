@@ -110,6 +110,51 @@ class FileService:
         self.crypto = crypto
         self.storage = storage
 
+    # ------------------------------------------------------------------------- read-only views
+    def list_files(self, user: UserRecord) -> dict[str, Any]:
+        """The caller's own files (metadata only), newest first. Deleted files are not listed."""
+        with self.db.transaction() as session:
+            files = session.files.list_for_owner(user.user_id)
+        return {"count": len(files), "storage": "SIMULATED local folders", "files": files}
+
+    def placement(self, user: UserRecord, file_id: int, ip: str | None = None) -> dict[str, Any]:
+        """Why this file is where it is: the stored selection decision, owner only."""
+        stored = self._load_owned(user, file_id, "VIEW_METADATA", ip)
+        with self.db.transaction() as session:
+            decision = session.files.get_decision(file_id)
+        if decision is None:
+            raise StoredFileNotFoundError(f"file {file_id} has no stored placement decision")
+        chosen = decision["chosen_region_id"]
+        ranked = [c for c in decision["candidates"] if c["excluded_reason"] is None]
+        rejected = [c for c in decision["candidates"] if c["excluded_reason"] is not None]
+        return {
+            "file_id": file_id,
+            "file_name": stored.file_name,
+            "storage": "SIMULATED local folders",
+            "preset": decision["preset"],
+            "weights": decision["weights"],
+            "decided_at": decision["decided_at"],
+            "explanation": decision["explanation"],
+            "selected": next(
+                (
+                    {"provider_code": c["provider_code"], "region_code": c["region_code"],
+                     "composite": c["composite"]}
+                    for c in ranked if c["region_id"] == chosen
+                ),
+                None,
+            ),  # fmt: skip
+            "ranked": [
+                {"rank": i, "provider_code": c["provider_code"], "region_code": c["region_code"],
+                 "composite": c["composite"], "raw": c["raw"]}
+                for i, c in enumerate(ranked, start=1)
+            ],  # fmt: skip
+            "rejected": [
+                {"provider_code": c["provider_code"], "region_code": c["region_code"],
+                 "reason": c["excluded_reason"]}
+                for c in rejected
+            ],  # fmt: skip
+        }
+
     # ------------------------------------------------------------------------- upload
     def upload(
         self, user: UserRecord, params: UploadParams, data: bytes, ip: str | None = None

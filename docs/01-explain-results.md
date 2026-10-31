@@ -2,6 +2,10 @@
 
 **100,010-row run EXECUTED (12:10, log `sql/explain_100k.log`). 10,010-row run NOT EXECUTED yet.** Paste real output into each section after running `sql/explain_plan_demo.sql` (see `01-run-guide.md`, step 5). Leave nothing here that did not come from your database.
 
+**Chunks 6 and 7 added no index and changed no schema**, so the plans below are unaffected. The two report queries added in
+chunk 6 have no recorded plan yet: `sql/explain_reports.sql` captures them (see `05-test-report.md`, section 2.13 and table T13).
+NOT EXECUTED.
+
 Record environment once:
 
 | Item | Value |

@@ -13,6 +13,7 @@ from __future__ import annotations
 import copy
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime
 from decimal import Decimal
 from statistics import median
 from typing import Any
@@ -274,6 +275,49 @@ class _FakeFiles:
             ciphertext_sha256=enc["ciphertext_sha256"] if enc else None,
         )  # fmt: skip
 
+    def list_for_owner(self, owner_id: int) -> list[dict[str, Any]]:
+        rows = []
+        for f in sorted(self._s["files"].values(), key=lambda x: -x["file_id"]):
+            if f["owner_id"] != owner_id or f["status"] == "DELETED":
+                continue
+            loc = next((x for x in self._s["locations"].values() if x["file_id"] == f["file_id"]), None)
+            region = self._s["regions"].get(loc["region_id"]) if loc else None
+            provider = self._s["providers"].get(region.provider_id) if region else None
+            rows.append({
+                "file_id": f["file_id"], "file_name": f["file_name"],
+                "file_size_bytes": f["file_size_bytes"], "file_type": f["file_type"],
+                "security_level": f["security_level"], "status": f["status"],
+                "content_sha256": f["content_sha256"], "uploaded_at": "2026-01-01T00:00:00",
+                "provider_code": provider.provider_code if provider else None,
+                "region_code": region.region_code if region else None,
+                "tier_code": loc["tier_code"] if loc else None,
+            })  # fmt: skip
+        return rows
+
+    def get_decision(self, file_id: int) -> dict[str, Any] | None:
+        decisions = [d for d in self._s["decisions"].values() if d["file_id"] == file_id]
+        if not decisions:
+            return None
+        d = max(decisions, key=lambda x: x["decision_id"])
+        candidates = []
+        for c in self._s["candidates"]:
+            if c["decision_id"] != d["decision_id"]:
+                continue
+            region = self._s["regions"][c["region_id"]]
+            provider = self._s["providers"][region.provider_id]
+            candidates.append({
+                "region_id": c["region_id"], "provider_code": provider.provider_code,
+                "region_code": region.region_code, "excluded_reason": c["excluded_reason"],
+                "composite": None if c["total_score"] is None else str(c["total_score"]),
+                "raw": c["raw"],
+            })  # fmt: skip
+        candidates.sort(key=lambda c: (c["composite"] is None, -(Decimal(c["composite"] or 0))))
+        return {
+            "decision_id": d["decision_id"], "preset": d["profile_name"], "weights": d["weights"],
+            "explanation": d["explanation"], "decided_at": "2026-01-01T00:00:00",
+            "chosen_region_id": d["chosen_region_id"], "candidates": candidates,
+        }  # fmt: skip
+
     def mark_deleted(self, file_id: int) -> bool:
         f = self._s["files"].get(file_id)
         if f is None or f["status"] == "DELETED":
@@ -291,12 +335,42 @@ class _FakeFiles:
         self._s["locations"].pop(location_id, None)
 
 
+class _FakeReports:
+    """Canned report rows. The grouping and threshold SQL is NOT reimplemented here: whether the
+    real SQL finds the right files is proved against Oracle (tests/integration/test_oracle_reports.py).
+    What this fake lets the unit tests prove is the application layer: scoping by owner, passing the
+    thresholds through, the money arithmetic and the response shape."""
+
+    def __init__(self, state: dict[str, Any]):
+        self._s = state
+
+    def db_now(self):
+        return self._s["report_now"]
+
+    def cold_config(self) -> dict[str, str]:
+        return dict(self._s["report_config"])
+
+    def duplicate_rows(self, owner_id):
+        rows = self._s["report_duplicate_rows"]
+        return [r for r in rows if owner_id is None or r.owner_id == owner_id]
+
+    def cold_rows(self, owner_id, as_of, thresholds):
+        self._s["report_cold_calls"].append((owner_id, as_of, thresholds))
+        return [
+            r for r in self._s["report_cold_rows"]
+            if (owner_id is None or r.owner_id == owner_id)
+            and r.idle_days > thresholds.idle_days
+            and r.downloads_window < thresholds.max_accesses
+        ]  # fmt: skip
+
+
 class FakeSession:
     def __init__(self, state: dict[str, Any], database: FakeDatabase):
         self.users = _FakeUsers(state)
         self.audit = _FakeAudit(state, database)
         self.providers = _FakeProviders(state)
         self.files = _FakeFiles(state)
+        self.reports = _FakeReports(state)
 
 
 class FakeDatabase:
@@ -310,6 +384,8 @@ class FakeDatabase:
             "files": {}, "encryption": {}, "locations": {}, "decisions": {}, "candidates": [],
             "access_logs": [], "next_file_id": 0, "next_location_id": 0, "next_decision_id": 0,
             "profiles": dict(PRESETS), "default_profile": "BALANCED", "policy": DEFAULT_POLICY,
+            "report_now": datetime(2026, 6, 1, 12, 0, 0), "report_config": {},
+            "report_duplicate_rows": [], "report_cold_rows": [], "report_cold_calls": [],
         }  # fmt: skip
         self.available = True
         self.fail_audit_with: Exception | None = None

@@ -15,7 +15,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.api.routers import auth, files, health, protected, providers, selection
+from app.api.routers import auth, files, health, protected, providers, reports, selection
 from app.config import Settings, load_settings
 from app.crypto.service import CryptoService
 from app.db.base import Database
@@ -33,6 +33,7 @@ from app.db.errors import (
 from app.db.pool import OracleDatabase
 from app.files import errors as file_errors
 from app.providers.service import NotFoundError
+from app.reports.service import InvalidReportRequest
 from app.selection.presets import WeightError
 from app.selection.service import InvalidSelectionRequest, UnknownPresetError
 from app.storage.base import StorageRegistry
@@ -64,6 +65,7 @@ def _register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(WeightError)
     @app.exception_handler(UnknownPresetError)
     @app.exception_handler(InvalidSelectionRequest)
+    @app.exception_handler(InvalidReportRequest)
     async def bad_selection_input(_: Request, exc: Exception) -> JSONResponse:
         return _json(422, str(exc))
 
@@ -146,9 +148,10 @@ def create_app(
 
     app = FastAPI(
         title="Multi-Cloud Metadata Manager",
-        version="0.4.0",
-        description="Chunks 2-4: authentication, RBAC, audit, provider registry, selection "
-        "and encrypted upload/download to SIMULATED storage. Monitoring arrives later.",
+        version="0.6.0",
+        description="Chunks 2-4 and 6: authentication, RBAC, audit, provider registry, selection, "
+        "encrypted upload/download to SIMULATED storage, and read-only duplicate and cold-file "
+        "reports. Replication and monitoring are not built.",
         lifespan=lifespan,
     )
     _register_error_handlers(app)
@@ -158,4 +161,5 @@ def create_app(
     app.include_router(providers.router)
     app.include_router(selection.router)
     app.include_router(files.router)
+    app.include_router(reports.router)
     return app

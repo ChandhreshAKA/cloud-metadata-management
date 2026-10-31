@@ -9,11 +9,13 @@ from __future__ import annotations
 
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, Protocol
 
 from app.files.models import StoredFile
 from app.providers.models import PricingRow, ProviderRow, RegionRow
+from app.reports.models import ColdRow, ColdThresholds, DuplicateRow
 from app.selection.models import Candidate, Policy, Weights
 
 
@@ -143,6 +145,14 @@ class FileRepository(Protocol):
 
     def get_for_access(self, file_id: int) -> StoredFile | None: ...
 
+    def list_for_owner(self, owner_id: int) -> list[dict[str, Any]]:
+        """The owner's files that are not deleted, newest first, with their primary location."""
+        ...
+
+    def get_decision(self, file_id: int) -> dict[str, Any] | None:
+        """The latest stored selection decision for a file with its candidates, or None."""
+        ...
+
     def mark_deleted(self, file_id: int) -> bool:
         """Set status DELETED. False if it was already deleted (or does not exist)."""
         ...
@@ -154,11 +164,34 @@ class FileRepository(Protocol):
     def delete_location(self, location_id: int) -> None: ...
 
 
+class ReportRepository(Protocol):
+    """Read-only queries behind the duplicate and cold-file reports (chunk 6)."""
+
+    def db_now(self) -> datetime:
+        """The database clock, so ages agree with stored timestamps."""
+        ...
+
+    def cold_config(self) -> dict[str, str]:
+        """system_config values for cold.idle_days, cold.max_accesses, cold.window_days (if set)."""
+        ...
+
+    def duplicate_rows(self, owner_id: int | None) -> list[DuplicateRow]:
+        """Every member of every group of 2+ files with the same owner and plaintext SHA-256."""
+        ...
+
+    def cold_rows(
+        self, owner_id: int | None, as_of: datetime, thresholds: ColdThresholds
+    ) -> list[ColdRow]:
+        """Files idle for MORE than idle_days with FEWER than max_accesses recent downloads."""
+        ...
+
+
 class Session(Protocol):
     users: UserRepository
     audit: AuditRepository
     providers: ProviderRepository
     files: FileRepository
+    reports: ReportRepository
 
 
 class Database(Protocol):

@@ -1,5 +1,5 @@
 # Fully pinned snapshot of every installed package (runtime + dev) from the environment where the
-# Chunk 2 tests passed (Python 3.12.10, Windows). Reproduce exactly with: pip install -r requirements-lock.txt
+# tests passed (Python 3.12.10, Windows). Reproduce exactly with: pip install -r requirements-lock.txt
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1

@@ -1,5 +1,6 @@
-# OPTIONAL: only needed by later chunks (dashboard, reports). Not installed or used in chunk 2.
-# Versions will be pinned when those chunks are built. Do not install these now.
-# streamlit
-# pandas
-# plotly
+# OPTIONAL: only for dashboard.py (the one-page Streamlit view). The API, the tests and
+# scripts/demo.py do NOT need it. Install it in a separate virtual environment:
+#   python -m venv .venv-dash
+#   .\.venv-dash\Scripts\python.exe -m pip install -r requirements-optional.txt
+# Tested with streamlit 1.50.0 (pandas and requests are installed with it).
+streamlit==1.50.0

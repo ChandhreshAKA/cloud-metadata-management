@@ -1,6 +1,6 @@
 # Data dictionary (Chunk 1)
 
-Status: NOT EXECUTED. Mirrors `sql/schema.sql`. PK = primary key, UK = unique, FK = foreign key (rule in brackets), NN = NOT NULL. "Illustrative" = a simulation assumption, not vendor data. GB = GiB (2^30 bytes). Timestamps are `TIMESTAMP(6)`.
+Status: mirrors `sql/schema.sql`, which was executed on Oracle 26ai Free in chunk 1 (`sql/install_fresh.log`). **Chunks 6 and 7 changed no table, column, constraint, index, view or pricing row** (`git diff afc53b3 -- sql/schema.sql sql/indexes.sql sql/indexes_access_logs.sql sql/views.sql sql/seed_data.sql` prints nothing). PK = primary key, UK = unique, FK = foreign key (rule in brackets), NN = NOT NULL. "Illustrative" = a simulation assumption, not vendor data. GB = GiB (2^30 bytes). Timestamps are `TIMESTAMP(6)`.
 
 ## Cardinalities
 
@@ -90,7 +90,7 @@ Status: NOT EXECUTED. Mirrors `sql/schema.sql`. PK = primary key, UK = unique, F
 ## system_config
 | Column | Type | Rules | Meaning |
 |---|---|---|---|
-| config_key | VARCHAR2(80) | PK | e.g. cold.idle_days |
+| config_key | VARCHAR2(80) | PK | e.g. `cold.idle_days` (seeded, 90). The chunk 6 cold-file report also reads `cold.max_accesses` (default 3) and `cold.window_days` (default 365); these two rows are optional (`sql/seed_reports_config.sql`) and the report uses the same values as built-in defaults when they are absent |
 | config_value | VARCHAR2(200) | NN | stored as text; the app parses |
 | description | VARCHAR2(300) | NN | |
 | updated_at / updated_by | TIMESTAMP / NUMBER | updated_by FK users (RESTRICT) | |
