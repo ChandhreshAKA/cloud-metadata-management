@@ -250,7 +250,7 @@ ADMIN has no own-file permissions in this chunk; add them to the table if admins
 Every request re-reads the user's **role and status from the database**, so a role change or a
 disabled account takes effect immediately, and a forged `role` claim in a token has no effect.
 
-## Provider selection (Chunk 3)
+## Provider selection 
 
 Print the fully worked numeric example (illustrative AWS / Azure / Google Cloud numbers, every intermediate value):
 
@@ -275,7 +275,7 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/selection/select -Head
 
 All prices, scores and latencies in the seed data are **illustrative**. The full method, formulas, tie-break order and limitations are in `docs/03-selection-engine.md`.
 
-## Encrypted upload and download (Chunk 4; storage is SIMULATED)
+## Encrypted upload and download ( 4; storage is SIMULATED)
 
 Generate a master key and put it in `.env` as `MASTER_KEY=...`:
 

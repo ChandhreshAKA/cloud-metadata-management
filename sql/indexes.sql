@@ -1,9 +1,9 @@
 -- =====================================================================
--- indexes.sql (Chunk 1)  STATUS: NOT EXECUTED
+-- indexes.sql (Chunk 1)  STATUS: NOT EXECUTED 
 -- Each index is tied to a named query in docs/01-schema-audit.md section 6.
 -- Already indexed by constraints (no extra index needed): every PK, every UNIQUE,
 -- storage_locations(file_id) via uq_locations_file_region,
--- storage_locations(region_id) via uq_locations_region_key,
+-- storage_locations(region_id) via uq_locations_region_key, 
 -- provider_regions(provider_id) via uq_regions_provider_code.
 -- Legacy idx_files_security (3 distinct values) is intentionally NOT recreated.
 -- =====================================================================

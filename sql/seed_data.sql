@@ -1,5 +1,5 @@
 -- =====================================================================
--- seed_data.sql (Chunk 1)  REFERENCE DATA  STATUS: NOT EXECUTED
+-- seed_data.sql ( 1)  REFERENCE DATA  STATUS: NOT EXECUTED
 -- Needed by BOTH the fresh install and the legacy migration.
 -- *** Every price, score, latency and size cap below is ILLUSTRATIVE ***
 -- *** (simulation assumptions), not vendor data.                     ***
