@@ -1,62 +1,62 @@
-"""SQL for the users table. Column names are those of sql/schema.sql (Chunk 1).
+"""User repository implemented with the SQLAlchemy ORM.
 
-Every statement uses bind variables (:name). Nothing from a request is ever concatenated into SQL.
+The ORM turns every value into a bind parameter, so request data is never part of the SQL text.
+No raw SQL is needed for this table.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from sqlalchemy import func, select, update
+from sqlalchemy.orm import Session
 
 from app.db.base import UserRecord
-
-_SELECT_COLUMNS = "user_id, full_name, email, role, password_hash, account_status"
-
-_INSERT_USER = """
-    INSERT INTO users (full_name, email, role, password_hash, account_status)
-    VALUES (:full_name, :email, 'USER', :password_hash, 'ACTIVE')
-    RETURNING user_id INTO :new_id
-"""
-
-_SELECT_BY_EMAIL = f"SELECT {_SELECT_COLUMNS} FROM users WHERE email = :email"  # noqa: S608
-_SELECT_BY_ID = f"SELECT {_SELECT_COLUMNS} FROM users WHERE user_id = :user_id"  # noqa: S608
-_TOUCH_LAST_LOGIN = "UPDATE users SET last_login_at = SYSTIMESTAMP WHERE user_id = :user_id"
+from app.db.orm import User
 
 
-def _to_record(row: tuple[Any, ...] | None) -> UserRecord | None:
-    if row is None:
+def _to_record(user: User | None) -> UserRecord | None:
+    if user is None:
         return None
-    user_id, full_name, email, role, password_hash, account_status = row
-    return UserRecord(int(user_id), full_name, email, role, password_hash, account_status)
+    return UserRecord(
+        int(user.user_id),
+        user.full_name,
+        user.email,
+        user.role,
+        user.password_hash,
+        user.account_status,
+    )
 
 
-class OracleUserRepository:
-    def __init__(self, connection: Any):
-        self._conn = connection
+class SqlAlchemyUserRepository:
+    def __init__(self, session: Session):
+        self._session = session
 
     def create(self, full_name: str, email: str, password_hash: str) -> int:
-        cursor = self._conn.cursor()
-        new_id = cursor.var(int)
-        cursor.execute(
-            _INSERT_USER,
-            {
-                "full_name": full_name,
-                "email": email,
-                "password_hash": password_hash,
-                "new_id": new_id,
-            },
+        user = User(
+            full_name=full_name,
+            email=email,
+            role="USER",  # roles are never self-assigned
+            password_hash=password_hash,
+            account_status="ACTIVE",
         )
-        return int(new_id.getvalue()[0])
+        self._session.add(user)
+        # Send the INSERT now so a constraint violation (for example a duplicate e-mail) is raised
+        # here, inside the caller's transaction block, and not later at commit time.
+        self._session.flush()
+        return int(user.user_id)
 
     def get_by_email(self, email: str) -> UserRecord | None:
-        cursor = self._conn.cursor()
-        cursor.execute(_SELECT_BY_EMAIL, {"email": email})
-        return _to_record(cursor.fetchone())
+        statement = select(User).where(User.email == email)
+        return _to_record(self._session.execute(statement).scalar_one_or_none())
 
     def get_by_id(self, user_id: int) -> UserRecord | None:
-        cursor = self._conn.cursor()
-        cursor.execute(_SELECT_BY_ID, {"user_id": user_id})
-        return _to_record(cursor.fetchone())
+        statement = select(User).where(User.user_id == user_id)
+        return _to_record(self._session.execute(statement).scalar_one_or_none())
 
     def touch_last_login(self, user_id: int) -> None:
-        cursor = self._conn.cursor()
-        cursor.execute(_TOUCH_LAST_LOGIN, {"user_id": user_id})
+        statement = (
+            update(User)
+            .where(User.user_id == user_id)
+            .values(last_login_at=func.current_timestamp())
+            .execution_options(synchronize_session=False)
+        )
+        self._session.execute(statement)

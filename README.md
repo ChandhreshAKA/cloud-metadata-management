@@ -8,7 +8,7 @@ access control and auditing of multi-cloud file storage. Providers are **simulat
 | Area | State |
 |---|---|
 | Oracle schema, migration, demos, indexes (`sql/`) | Done and executed on Oracle 26ai Free (chunk 1). Not yet run: the 10,000-row EXPLAIN comparison and the legacy-migration test |
-| Config, DB layer, register, login (Argon2 + JWT), RBAC, audit, health (chunk 2) | **Built and tested** |
+| Config, DB layer, register, login (Argon2 + JWT), RBAC, audit, health (chunk 2) | **Built and tested.** The `users` table now goes through the SQLAlchemy ORM (`app/db/orm.py`, `app/db/repositories/users.py`); the other repositories still use raw SQL and are converted one at a time |
 | Provider registry (admin-only writes), selection engine, dry-run endpoints, worked example, baselines (chunk 3) | **Built and tested.** See `docs/03-selection-engine.md` |
 | Encrypted upload, download and delete to **SIMULATED** local-folder storage (AES-256-GCM; the selection engine runs on every upload) (chunk 4) | **Built and tested.** See `docs/04-storage-encryption.md` |
 | Read-only **duplicate-file report** and **cold-file report**, plus a seeded synthetic sample (chunk 6) | **Built and tested** against Oracle. Exact duplicates within one owner; cold files listed as "candidates for archival review". See `docs/09-reports.md` |
