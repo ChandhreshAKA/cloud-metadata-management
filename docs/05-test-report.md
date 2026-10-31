@@ -25,8 +25,7 @@ deliberate-bug checks in section 4 (run by the assistant, source named).
 | Git commit | `git rev-parse --short HEAD` | b2578ab |
 | Python | `.\.venv\Scripts\python.exe --version` |Python 3.12.10 |
 | Oracle | `SELECT banner FROM v$version;` | Oracle Database 21c Express Edition Release 21.0.0.0.0 - Production (Version 21.3.0.0.0) |
-| SQL*Plus | first line printed when `sqlplus` starts |SQL*Plus: Release 21.0.0.0.0 - Production
-Version 21.3.0.0.0 |
+| SQL*Plus | first line printed when `sqlplus` starts |SQL*Plus: Release 21.0.0.0.0 - Production Version 21.3.0.0.0 |
 | `MASTER_KEY` set in `.env`? | yes or no (never write the key here) |yes |
 
 ## 2. Commands
@@ -188,9 +187,9 @@ Read the operation and the `Buffers` column in `explain_reports.log`. For a mean
 
 | Suite | Recorded at build time (source) | Your run: passed | failed | skipped | Notes |
 |---|---|---|---|---|---|
-| Lint (`ruff check .`) | all checks passed (assistant, final run before the chunk 4 commit) | | | | |
+| Lint (`ruff check .`) | all checks passed (assistant, final run before the chunk 4 commit) |434 |0 |0 | |
 | Unit tests | 370 passed (assistant, same run) | | | | |
-| Integration tests | 40 passed (assistant, against your Oracle with a process-only master key) | | | | |
+| Integration tests | 40 passed (assistant, against your Oracle with a process-only master key) |56 |0 |0 | |
 | Coverage, unit only, whole `app` | 92% total (assistant) | | | | |
 | Coverage, unit plus integration | not run | | | | |
 
